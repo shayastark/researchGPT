@@ -33,7 +33,7 @@ async function checkNetwork(network: 'dev' | 'production') {
 
     const agent = await Agent.create(signer, {
       env: network,
-      encryptionKey: Buffer.from(XMTP_DB_ENCRYPTION_KEY, 'hex'),
+      dbEncryptionKey: Buffer.from(XMTP_DB_ENCRYPTION_KEY!, 'hex'),
     });
 
     console.log(`✅ Agent exists on ${network.toUpperCase()} network`);

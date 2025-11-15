@@ -3,10 +3,10 @@
   "version": "1.0.0",
   "description": "XMTP research agent with x402 payment protocol on Base blockchain",
   "type": "module",
-  "main": "dist/agent/index.js",
+  "main": "dist/src/agent/index.js",
   "scripts": {
     "build": "tsc",
-    "start": "node dist/agent/index.js",
+    "start": "node dist/src/agent/index.js",
     "dev": "node --loader ts-node/esm --no-warnings=ExperimentalWarning src/agent/index.ts",
     "service:market": "node --loader ts-node/esm --no-warnings=ExperimentalWarning src/services/market-data.ts",
     "service:sentiment": "node --loader ts-node/esm --no-warnings=ExperimentalWarning src/services/sentiment.ts",

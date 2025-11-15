@@ -3,7 +3,7 @@ import { createUser, createSigner } from '@xmtp/agent-sdk/user';
 import OpenAI from 'openai';
 import express from 'express';
 import dotenv from 'dotenv';
-import { X402Client } from '../lib/x402-client';
+import { X402Client } from '../lib/x402-client.js';
 
 dotenv.config();
 
@@ -159,7 +159,7 @@ class XMTPResearchAgent {
           : undefined,
         // Encryption key for database
         ...(XMTP_DB_ENCRYPTION_KEY ? {
-          encryptionKey: Buffer.from(XMTP_DB_ENCRYPTION_KEY, 'hex')
+          dbEncryptionKey: Buffer.from(XMTP_DB_ENCRYPTION_KEY, 'hex')
         } : {})
       });
 

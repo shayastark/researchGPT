@@ -43,7 +43,7 @@ async function initializeAgent() {
     // Create agent on PRODUCTION network
     const agent = await Agent.create(signer, {
       env: 'production', // This is the key - must be production for xmtp.chat
-      encryptionKey: Buffer.from(XMTP_DB_ENCRYPTION_KEY, 'hex'),
+      dbEncryptionKey: Buffer.from(XMTP_DB_ENCRYPTION_KEY!, 'hex'),
     });
 
     console.log('\n✅ SUCCESS! Agent initialized on PRODUCTION network\n');
