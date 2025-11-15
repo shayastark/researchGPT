@@ -338,7 +338,7 @@ class XMTPResearchAgent {
 
   private async planResearch(query: string): Promise<ResearchRequest> {
     const completion = await this.openai.chat.completions.create({
-      model: 'gpt-4',
+      model: 'gpt-4o-mini',
       messages: [
         {
           role: 'system',
@@ -375,7 +375,7 @@ Examples:
 
   private async synthesizeReport(query: string, data: any, cost: number): Promise<string> {
     const completion = await this.openai.chat.completions.create({
-      model: 'gpt-4',
+      model: 'gpt-4o-mini',
       messages: [
         {
           role: 'system',
