@@ -244,20 +244,20 @@ class XMTPResearchAgent {
     await this.agent.start();
   }
 
-  private async handleResearchRequest(query: string): Promise<string> {
-    console.log(`🔍 Processing research request with Claude + Locus MCP: "${query}"`);
+  private async handleResearchRequest(userQuery: string): Promise<string> {
+    console.log(`🔍 Processing research request with Claude + Locus MCP: "${userQuery}"`);
 
     try {
       // Use Claude Agent SDK with Locus MCP
       // Claude will autonomously decide which x402 tools to use
-      const response = query({
+      const response = await query({
         prompt: `You are a crypto research agent with access to multiple x402 data services across different facilitators.
 
 AVAILABLE SERVICES:
 - ta(symbol: string) - Technical analysis for Base network tokens (Locus facilitator)
 - Additional x402 services from CDP facilitator marketplace (price data, sentiment, on-chain metrics)
 
-USER REQUEST: ${query}
+USER REQUEST: ${userQuery}
 
 Analyze the request and use the appropriate x402 services to gather comprehensive data. Then synthesize your findings into a clear, actionable research report.
 
