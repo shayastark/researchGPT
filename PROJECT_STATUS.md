@@ -224,12 +224,17 @@ ONCHAIN_SERVICE=https://...
 All documentation is complete and up-to-date:
 
 - `README.md` - Project overview
-- `SETUP_COMPLETE.md` - Setup summary
-- `XMTP_SETUP.md` - Detailed XMTP instructions
-- `DEPLOYMENT.md` - Railway deployment guide
 - `QUICKSTART.md` - 5-minute quick start
+- `XMTP_SETUP.md` - Detailed XMTP instructions
+- `NETWORK_SETUP.md` - XMTP network configuration (dev vs production)
+- `RAILWAY_MAINNET_SETUP.md` - Complete mainnet deployment guide
+- `DEPLOYMENT.md` - Railway deployment guide
+- `SETUP_COMPLETE.md` - Setup summary
 - `REFACTOR_SUMMARY.md` - x402 refactor details
-- `.env.example` - Environment variables
+- `.env.example` - Environment variables template
+- `.env.production.example` - Production configuration template
+- `SOLUTION_SUMMARY.md` - Network issue fix summary
+- `XMTP_NETWORK_FIX.md` - Detailed network troubleshooting
 - `PROJECT_STATUS.md` - This file
 
 ---
@@ -293,6 +298,34 @@ Users trying to message the agent on xmtp.chat got error:
 - Agent now displays clear warnings if on DEV network
 - Logs show which network is active on startup
 - Documentation clarified the network distinction
+
+## 🔧 Railway ESM Deployment Issue (FIXED)
+
+### Problem:
+Railway deployment failed with error:
+```
+Error [ERR_PACKAGE_PATH_NOT_EXPORTED]: No "exports" main defined in 
+/app/node_modules/@xmtp/agent-sdk/package.json
+```
+
+### Root Cause:
+`@xmtp/agent-sdk` is an ESM-only package, but `package.json` was missing `"type": "module"` declaration.
+
+### Solution:
+Added to `package.json`:
+```json
+{
+  "type": "module",
+  ...
+}
+```
+
+This tells Node.js to treat all `.js` files as ES modules, which is required for the XMTP Agent SDK.
+
+### Also Updated:
+- `tsconfig.json` - Added `ts-node` ESM configuration
+- All npm scripts - Updated to use ESM loader for development
+- Kept `npm start` simple for Railway production deployment
 
 ---
 

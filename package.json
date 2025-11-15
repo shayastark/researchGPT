@@ -2,18 +2,19 @@
   "name": "xmtp-research-agent",
   "version": "1.0.0",
   "description": "XMTP research agent with x402 payment protocol on Base blockchain",
+  "type": "module",
   "main": "dist/agent/index.js",
   "scripts": {
     "build": "tsc",
     "start": "node dist/agent/index.js",
-    "dev": "ts-node src/agent/index.ts",
-    "service:market": "ts-node src/services/market-data.ts",
-    "service:sentiment": "ts-node src/services/sentiment.ts",
-    "service:onchain": "ts-node src/services/onchain.ts",
+    "dev": "node --loader ts-node/esm --no-warnings=ExperimentalWarning src/agent/index.ts",
+    "service:market": "node --loader ts-node/esm --no-warnings=ExperimentalWarning src/services/market-data.ts",
+    "service:sentiment": "node --loader ts-node/esm --no-warnings=ExperimentalWarning src/services/sentiment.ts",
+    "service:onchain": "node --loader ts-node/esm --no-warnings=ExperimentalWarning src/services/onchain.ts",
     "services:all": "concurrently \"npm run service:market\" \"npm run service:sentiment\" \"npm run service:onchain\"",
-    "generate-credentials": "ts-node scripts/generate-credentials.ts",
-    "initialize-production": "ts-node scripts/initialize-agent-production.ts",
-    "check-network": "ts-node scripts/check-agent-network.ts"
+    "generate-credentials": "node --loader ts-node/esm --no-warnings=ExperimentalWarning scripts/generate-credentials.ts",
+    "initialize-production": "node --loader ts-node/esm --no-warnings=ExperimentalWarning scripts/initialize-agent-production.ts",
+    "check-network": "node --loader ts-node/esm --no-warnings=ExperimentalWarning scripts/check-agent-network.ts"
   },
   "keywords": [
     "xmtp",
