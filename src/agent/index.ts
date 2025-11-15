@@ -1,14 +1,21 @@
-import { Agent } from '@xmtp/agent-sdk';
+import { Agent, filter, validHex } from '@xmtp/agent-sdk';
+import { createUser, createSigner } from '@xmtp/agent-sdk/user';
 import OpenAI from 'openai';
 import dotenv from 'dotenv';
 import { X402Client } from '../lib/x402-client';
 
 dotenv.config();
 
-// Environment variables
-const XMTP_KEY = process.env.XMTP_KEY || '';
+// Environment variables - XMTP
+const XMTP_WALLET_KEY = process.env.XMTP_WALLET_KEY || '';
+const XMTP_ENV = (process.env.XMTP_ENV || 'dev') as 'local' | 'dev' | 'production';
+const XMTP_DB_ENCRYPTION_KEY = process.env.XMTP_DB_ENCRYPTION_KEY;
+
+// Environment variables - OpenAI
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
-const BASE_RPC_URL = process.env.BASE_RPC_URL || 'https://mainnet.base.org';
+
+// Environment variables - Base blockchain
+const BASE_RPC_URL = process.env.BASE_RPC_URL || 'https://sepolia.base.org';
 const PRIVATE_KEY = process.env.PRIVATE_KEY || '';
 const USE_MAINNET = process.env.USE_MAINNET === 'true';
 
@@ -16,6 +23,9 @@ const USE_MAINNET = process.env.USE_MAINNET === 'true';
 const MARKET_DATA_SERVICE = process.env.MARKET_DATA_SERVICE || 'http://localhost:3001';
 const SENTIMENT_SERVICE = process.env.SENTIMENT_SERVICE || 'http://localhost:3002';
 const ONCHAIN_SERVICE = process.env.ONCHAIN_SERVICE || 'http://localhost:3003';
+
+// Railway volume path for persistent database
+const RAILWAY_VOLUME = process.env.RAILWAY_VOLUME_MOUNT_PATH;
 
 interface ResearchRequest {
   query: string;
@@ -25,15 +35,21 @@ interface ResearchRequest {
 }
 
 class XMTPResearchAgent {
-  private agent: Agent;
+  private agent!: Agent;
   private openai: OpenAI;
   private x402Client: X402Client;
 
   constructor() {
-    this.agent = new Agent({
-      key: XMTP_KEY,
-      // Additional XMTP configuration
-    });
+    // Validate required environment variables
+    if (!XMTP_WALLET_KEY) {
+      throw new Error('XMTP_WALLET_KEY environment variable is required');
+    }
+    if (!OPENAI_API_KEY) {
+      throw new Error('OPENAI_API_KEY environment variable is required');
+    }
+    if (!PRIVATE_KEY) {
+      throw new Error('PRIVATE_KEY environment variable is required');
+    }
 
     this.openai = new OpenAI({
       apiKey: OPENAI_API_KEY,
@@ -46,85 +62,188 @@ class XMTPResearchAgent {
     });
 
     console.log(`🤖 XMTP Research Agent Configuration:`);
-    console.log(`   Network: ${USE_MAINNET ? 'Base (mainnet)' : 'Base Sepolia (testnet)'}`);
+    console.log(`   XMTP Network: ${XMTP_ENV}`);
+    console.log(`   Base Network: ${USE_MAINNET ? 'Base (mainnet)' : 'Base Sepolia (testnet)'}`);
     console.log(`   Wallet: ${this.x402Client.getAddress()}`);
   }
 
-  async start() {
-    console.log('\n🤖 XMTP Research Agent starting...');
-    console.log('✅ Agent is now listening for messages\n');
+  async initialize() {
+    console.log('\n🔄 Initializing XMTP Agent...');
 
-    // Listen for incoming messages
-    this.agent.on('message', async (message: any) => {
-      console.log(`\n📨 Received message from ${message.sender}`);
-      console.log(`   Query: "${message.content}"\n`);
+    try {
+      // Create signer from private key
+      const user = createUser(validHex(XMTP_WALLET_KEY));
+      const signer = createSigner(user);
+
+      // Create agent with proper configuration
+      this.agent = await Agent.create(signer, {
+        env: XMTP_ENV,
+        // Database path - use Railway volume if available, otherwise local
+        dbPath: RAILWAY_VOLUME 
+          ? (inboxId) => `${RAILWAY_VOLUME}/${XMTP_ENV}-${inboxId.slice(0, 8)}.db3`
+          : undefined,
+        // Encryption key for database
+        ...(XMTP_DB_ENCRYPTION_KEY ? {
+          encryptionKey: Buffer.from(XMTP_DB_ENCRYPTION_KEY, 'hex')
+        } : {})
+      });
+
+      console.log(`✅ XMTP Agent initialized`);
+      console.log(`   Address: ${this.agent.address}`);
+      console.log(`   InboxId: ${this.agent.client.inboxId}`);
+
+    } catch (error) {
+      console.error('❌ Failed to initialize XMTP Agent:', error);
+      throw error;
+    }
+  }
+
+  async start() {
+    await this.initialize();
+
+    console.log('\n🤖 XMTP Research Agent starting...');
+
+    // Listen for text messages
+    this.agent.on('text', async (ctx) => {
+      // Filter out messages from self and ensure valid content
+      if (
+        filter.fromSelf(ctx.message, ctx.client) ||
+        !filter.hasContent(ctx.message)
+      ) {
+        return;
+      }
+
+      // Get sender address
+      let senderAddress = 'unknown';
+      if (filter.isDM(ctx.conversation)) {
+        senderAddress = ctx.conversation.peerInboxId;
+      } else if (filter.isGroup(ctx.conversation)) {
+        senderAddress = ctx.message.senderInboxId;
+      }
+      const messageContent = ctx.message.content;
+
+      console.log(`\n📨 Received message from ${senderAddress}`);
+      console.log(`   Query: "${messageContent}"\n`);
 
       try {
         // Process the research request
-        const response = await this.handleResearchRequest(message.content, message.sender);
+        const response = await this.handleResearchRequest(messageContent);
 
         // Send response back via XMTP
-        await this.agent.sendMessage(message.sender, response);
-        console.log(`✅ Response sent to ${message.sender}\n`);
+        await ctx.sendText(response);
+        console.log(`✅ Response sent to ${senderAddress}\n`);
       } catch (error) {
         console.error('❌ Error handling message:', error);
         const errorMessage = `❌ Error processing your request: ${
           error instanceof Error ? error.message : 'Unknown error'
         }`;
-        await this.agent.sendMessage(message.sender, errorMessage);
+        await ctx.sendText(errorMessage);
       }
     });
+
+    // Listen for group messages
+    this.agent.on('group', async (ctx) => {
+      console.log('👥 New group conversation created');
+    });
+
+    // Listen for DMs
+    this.agent.on('dm', async (ctx) => {
+      console.log('💬 New DM conversation created');
+    });
+
+    // Handle errors
+    this.agent.on('unhandledError', (error) => {
+      console.error('❌ Unhandled agent error:', error);
+    });
+
+    // Start event
+    this.agent.on('start', () => {
+      console.log('\n' + '═'.repeat(60));
+      console.log('✅ XMTP Research Agent is now online!');
+      console.log('═'.repeat(60));
+      console.log(`\n📬 Agent Address: ${this.agent.address}`);
+      console.log(`📊 InboxId: ${this.agent.client.inboxId}`);
+      console.log(`🌐 Environment: ${XMTP_ENV}`);
+      console.log(`\n💡 Send a message to start researching!\n`);
+      console.log('Example queries:');
+      console.log('  - "What\'s Bitcoin\'s price?"');
+      console.log('  - "Is Ethereum sentiment bullish?"');
+      console.log('  - "Full research on Solana"\n');
+    });
+
+    // Start the agent
+    await this.agent.start();
   }
 
-  private async handleResearchRequest(query: string, sender: string): Promise<string> {
+  private async handleResearchRequest(query: string): Promise<string> {
     console.log(`🔍 Processing research request: "${query}"`);
 
-    // Step 1: Analyze the query with GPT-4 to determine what data is needed
-    const researchPlan = await this.planResearch(query);
-    console.log('📋 Research plan:', JSON.stringify(researchPlan, null, 2));
+    try {
+      // Step 1: Analyze the query with GPT-4 to determine what data is needed
+      const researchPlan = await this.planResearch(query);
+      console.log('📋 Research plan:', JSON.stringify(researchPlan, null, 2));
 
-    // Step 2: Fetch data from x402 services (paying with USDC)
-    const data: any = {};
-    let totalCost = 0;
+      // Step 2: Fetch data from x402 services (paying with USDC)
+      const data: any = {};
+      let totalCost = 0;
 
-    if (researchPlan.needsMarketData) {
-      console.log('\n💰 Fetching market data ($0.10)...');
-      const result = await this.x402Client.post(`${MARKET_DATA_SERVICE}/api/market`, {
-        query: query,
-      });
-      data.marketData = result.data.data;
-      totalCost += 0.1;
-      console.log('✅ Market data received');
+      if (researchPlan.needsMarketData) {
+        console.log('\n💰 Fetching market data ($0.10)...');
+        try {
+          const result = await this.x402Client.post(`${MARKET_DATA_SERVICE}/api/market`, {
+            query: query,
+          });
+          data.marketData = result.data.data;
+          totalCost += 0.1;
+          console.log('✅ Market data received');
+        } catch (error) {
+          console.error('❌ Failed to fetch market data:', error);
+          data.marketData = { error: 'Service unavailable' };
+        }
+      }
+
+      if (researchPlan.needsSentiment) {
+        console.log('\n😊 Fetching sentiment analysis ($0.15)...');
+        try {
+          const result = await this.x402Client.post(`${SENTIMENT_SERVICE}/api/sentiment`, {
+            query: query,
+          });
+          data.sentiment = result.data.data;
+          totalCost += 0.15;
+          console.log('✅ Sentiment data received');
+        } catch (error) {
+          console.error('❌ Failed to fetch sentiment data:', error);
+          data.sentiment = { error: 'Service unavailable' };
+        }
+      }
+
+      if (researchPlan.needsOnchain) {
+        console.log('\n⛓️  Fetching on-chain data ($0.20)...');
+        try {
+          const result = await this.x402Client.post(`${ONCHAIN_SERVICE}/api/onchain`, {
+            query: query,
+          });
+          data.onchain = result.data.data;
+          totalCost += 0.2;
+          console.log('✅ On-chain data received');
+        } catch (error) {
+          console.error('❌ Failed to fetch on-chain data:', error);
+          data.onchain = { error: 'Service unavailable' };
+        }
+      }
+
+      console.log(`\n💵 Total cost: $${totalCost.toFixed(2)} USDC`);
+
+      // Step 3: Synthesize results with GPT-4
+      console.log('\n🤖 Synthesizing research report with GPT-4...');
+      const report = await this.synthesizeReport(query, data, totalCost);
+      console.log('✅ Report generated');
+
+      return report;
+    } catch (error) {
+      console.error('❌ Error in handleResearchRequest:', error);
+      throw error;
     }
-
-    if (researchPlan.needsSentiment) {
-      console.log('\n😊 Fetching sentiment analysis ($0.15)...');
-      const result = await this.x402Client.post(`${SENTIMENT_SERVICE}/api/sentiment`, {
-        query: query,
-      });
-      data.sentiment = result.data.data;
-      totalCost += 0.15;
-      console.log('✅ Sentiment data received');
-    }
-
-    if (researchPlan.needsOnchain) {
-      console.log('\n⛓️  Fetching on-chain data ($0.20)...');
-      const result = await this.x402Client.post(`${ONCHAIN_SERVICE}/api/onchain`, {
-        query: query,
-      });
-      data.onchain = result.data.data;
-      totalCost += 0.2;
-      console.log('✅ On-chain data received');
-    }
-
-    console.log(`\n💵 Total cost: $${totalCost.toFixed(2)} USDC`);
-
-    // Step 3: Synthesize results with GPT-4
-    console.log('\n🤖 Synthesizing research report with GPT-4...');
-    const report = await this.synthesizeReport(query, data, totalCost);
-    console.log('✅ Report generated');
-
-    return report;
   }
 
   private async planResearch(query: string): Promise<ResearchRequest> {
@@ -198,6 +317,9 @@ Provide a comprehensive research report.`,
 
 // Start the agent
 const agent = new XMTPResearchAgent();
-agent.start().catch(console.error);
+agent.start().catch((error) => {
+  console.error('❌ Fatal error:', error);
+  process.exit(1);
+});
 
 export default XMTPResearchAgent;

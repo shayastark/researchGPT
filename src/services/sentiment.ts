@@ -25,49 +25,19 @@ console.log(`   Network: ${network}`);
 console.log(`   Facilitator: ${USE_MAINNET ? 'CDP (mainnet)' : 'x402.org (testnet)'}`);
 console.log(`   Payment Address: ${PAYMENT_ADDRESS}`);
 
+// Validate payment address
+if (!PAYMENT_ADDRESS) {
+  throw new Error('PAYMENT_ADDRESS environment variable is required');
+}
+
 // Apply x402 payment middleware
 app.use(
   paymentMiddleware(
-    PAYMENT_ADDRESS,
+    PAYMENT_ADDRESS as `0x${string}`,
     {
       'POST /api/sentiment': {
         price: '$0.15',
-        network: network,
-        config: {
-          description: 'Get comprehensive sentiment analysis from social media, news, and influencer data',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              query: {
-                type: 'string',
-                description: 'Cryptocurrency or asset to analyze sentiment for',
-              },
-            },
-            required: ['query'],
-          },
-          outputSchema: {
-            type: 'object',
-            properties: {
-              success: { type: 'boolean' },
-              data: {
-                type: 'object',
-                properties: {
-                  asset: { type: 'string' },
-                  overallSentiment: { type: 'string' },
-                  sentimentScore: { type: 'number' },
-                  socialVolume: { type: 'number' },
-                  socialDominance: { type: 'number' },
-                  twitterMentions24h: { type: 'number' },
-                  redditMentions24h: { type: 'number' },
-                  newsArticles24h: { type: 'number' },
-                  fearGreedIndex: { type: 'number' },
-                  lastUpdated: { type: 'string' },
-                  source: { type: 'string' },
-                },
-              },
-            },
-          },
-        },
+        network: network as any,
       },
     },
     facilitatorConfig

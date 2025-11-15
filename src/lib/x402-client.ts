@@ -66,7 +66,7 @@ export class X402Client {
 
       if (paymentResponse) {
         console.log(`✅ Payment completed successfully`);
-        console.log(`   Transaction: ${paymentResponse.txHash || 'pending'}`);
+        console.log(`   Transaction: ${paymentResponse.transaction || 'pending'}`);
       }
 
       return {

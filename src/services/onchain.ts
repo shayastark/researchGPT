@@ -25,49 +25,19 @@ console.log(`   Network: ${network}`);
 console.log(`   Facilitator: ${USE_MAINNET ? 'CDP (mainnet)' : 'x402.org (testnet)'}`);
 console.log(`   Payment Address: ${PAYMENT_ADDRESS}`);
 
+// Validate payment address
+if (!PAYMENT_ADDRESS) {
+  throw new Error('PAYMENT_ADDRESS environment variable is required');
+}
+
 // Apply x402 payment middleware
 app.use(
   paymentMiddleware(
-    PAYMENT_ADDRESS,
+    PAYMENT_ADDRESS as `0x${string}`,
     {
       'POST /api/onchain': {
         price: '$0.20',
-        network: network,
-        config: {
-          description: 'Get comprehensive on-chain analytics including transactions, whale activity, and holder distribution',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              query: {
-                type: 'string',
-                description: 'Cryptocurrency or asset to analyze on-chain data for',
-              },
-            },
-            required: ['query'],
-          },
-          outputSchema: {
-            type: 'object',
-            properties: {
-              success: { type: 'boolean' },
-              data: {
-                type: 'object',
-                properties: {
-                  asset: { type: 'string' },
-                  network: { type: 'string' },
-                  activeAddresses24h: { type: 'number' },
-                  transactions24h: { type: 'number' },
-                  transactionVolume24h: { type: 'number' },
-                  exchangeInflows24h: { type: 'number' },
-                  exchangeOutflows24h: { type: 'number' },
-                  netFlow24h: { type: 'number' },
-                  dexVolume24h: { type: 'number' },
-                  lastUpdated: { type: 'string' },
-                  source: { type: 'string' },
-                },
-              },
-            },
-          },
-        },
+        network: network as any,
       },
     },
     facilitatorConfig
