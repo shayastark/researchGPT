@@ -1,9 +1,8 @@
 import { Agent, filter, validHex } from '@xmtp/agent-sdk';
 import { createUser, createSigner } from '@xmtp/agent-sdk/user';
-import OpenAI from 'openai';
+import { query } from '@anthropic-ai/claude-agent-sdk';
 import express from 'express';
 import dotenv from 'dotenv';
-import { X402Client } from '../lib/x402-client.js';
 
 dotenv.config();
 
@@ -12,18 +11,9 @@ const XMTP_WALLET_KEY = process.env.XMTP_WALLET_KEY || '';
 const XMTP_ENV = (process.env.XMTP_ENV || 'dev') as 'local' | 'dev' | 'production';
 const XMTP_DB_ENCRYPTION_KEY = process.env.XMTP_DB_ENCRYPTION_KEY;
 
-// Environment variables - OpenAI
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
-
-// Environment variables - Base blockchain
-const BASE_RPC_URL = process.env.BASE_RPC_URL || 'https://sepolia.base.org';
-const PRIVATE_KEY = process.env.PRIVATE_KEY || '';
-const USE_MAINNET = process.env.USE_MAINNET === 'true';
-
-// Service endpoints (x402-enabled)
-const MARKET_DATA_SERVICE = process.env.MARKET_DATA_SERVICE || 'http://localhost:3001';
-const SENTIMENT_SERVICE = process.env.SENTIMENT_SERVICE || 'http://localhost:3002';
-const ONCHAIN_SERVICE = process.env.ONCHAIN_SERVICE || 'http://localhost:3003';
+// Environment variables - AI & Payments
+const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
+const LOCUS_API_KEY = process.env.LOCUS_API_KEY || '';
 
 // Railway volume path for persistent database
 const RAILWAY_VOLUME = process.env.RAILWAY_VOLUME_MOUNT_PATH;
@@ -31,17 +21,11 @@ const RAILWAY_VOLUME = process.env.RAILWAY_VOLUME_MOUNT_PATH;
 // HTTP server port (for Railway health checks)
 const PORT = parseInt(process.env.PORT || '3000');
 
-interface ResearchRequest {
-  query: string;
-  needsMarketData: boolean;
-  needsSentiment: boolean;
-  needsOnchain: boolean;
-}
+// Locus MCP server configuration
+const LOCUS_MCP_SERVER_URL = process.env.LOCUS_MCP_SERVER_URL || 'https://mcp.paywithlocus.com';
 
 class XMTPResearchAgent {
   private agent!: Agent;
-  private openai: OpenAI;
-  private x402Client: X402Client;
   private httpServer: express.Application;
   private serverStartTime: Date;
 
@@ -50,24 +34,14 @@ class XMTPResearchAgent {
     if (!XMTP_WALLET_KEY) {
       throw new Error('XMTP_WALLET_KEY environment variable is required');
     }
-    if (!OPENAI_API_KEY) {
-      throw new Error('OPENAI_API_KEY environment variable is required');
+    if (!ANTHROPIC_API_KEY) {
+      throw new Error('ANTHROPIC_API_KEY environment variable is required');
     }
-    if (!PRIVATE_KEY) {
-      throw new Error('PRIVATE_KEY environment variable is required');
+    if (!LOCUS_API_KEY) {
+      throw new Error('LOCUS_API_KEY environment variable is required');
     }
 
     this.serverStartTime = new Date();
-
-    this.openai = new OpenAI({
-      apiKey: OPENAI_API_KEY,
-    });
-
-    this.x402Client = new X402Client({
-      rpcUrl: BASE_RPC_URL,
-      privateKey: PRIVATE_KEY,
-      network: USE_MAINNET ? 'mainnet' : 'testnet',
-    });
 
     // Initialize HTTP server for health checks
     this.httpServer = express();
@@ -76,8 +50,8 @@ class XMTPResearchAgent {
 
     console.log(`🤖 XMTP Research Agent Configuration:`);
     console.log(`   XMTP Network: ${XMTP_ENV}`);
-    console.log(`   Base Network: ${USE_MAINNET ? 'Base (mainnet)' : 'Base Sepolia (testnet)'}`);
-    console.log(`   Wallet: ${this.x402Client.getAddress()}`);
+    console.log(`   AI: Claude (Anthropic)`);
+    console.log(`   Payments: Locus MCP (multi-facilitator support)`);
     console.log(`   HTTP Port: ${PORT}`);
     
     // Warning if on dev network
@@ -96,7 +70,8 @@ class XMTPResearchAgent {
         service: 'xmtp-research-agent',
         uptime: Math.floor((Date.now() - this.serverStartTime.getTime()) / 1000),
         xmtpNetwork: XMTP_ENV,
-        baseNetwork: USE_MAINNET ? 'mainnet' : 'testnet',
+        ai: 'claude-sonnet',
+        payments: 'locus-mcp',
         address: this.agent?.address || 'not initialized',
         timestamp: new Date().toISOString(),
       });
@@ -106,21 +81,23 @@ class XMTPResearchAgent {
     this.httpServer.get('/status', (req, res) => {
       res.json({
         service: 'XMTP Research Agent',
-        version: '1.0.0',
+        version: '2.0.0',
         status: 'running',
         uptime: Math.floor((Date.now() - this.serverStartTime.getTime()) / 1000),
         configuration: {
           xmtpNetwork: XMTP_ENV,
-          baseNetwork: USE_MAINNET ? 'mainnet' : 'testnet',
           agentAddress: this.agent?.address || 'not initialized',
           inboxId: this.agent?.client?.inboxId || 'not initialized',
-          walletAddress: this.x402Client.getAddress(),
+          ai: 'Claude 3.5 Sonnet',
+          paymentSystem: 'Locus MCP',
+          multiFacilitator: true,
           volumePath: RAILWAY_VOLUME || 'not configured',
         },
-        services: {
-          marketData: MARKET_DATA_SERVICE,
-          sentiment: SENTIMENT_SERVICE,
-          onchain: ONCHAIN_SERVICE,
+        capabilities: {
+          locusFacilitator: ['ethyai.app/x402/ta'],
+          cdpFacilitator: ['x402scan marketplace services'],
+          autonomousPayments: true,
+          policyEnforcement: true,
         },
         ready: !!this.agent,
         timestamp: new Date().toISOString(),
@@ -131,7 +108,7 @@ class XMTPResearchAgent {
     this.httpServer.get('/', (req, res) => {
       res.json({
         service: 'XMTP Research Agent',
-        message: 'Agent is running. Send XMTP messages to interact.',
+        message: 'Multi-facilitator AI agent with Locus MCP. Send XMTP messages to interact.',
         agentAddress: this.agent?.address || 'initializing...',
         xmtpNetwork: XMTP_ENV,
         endpoints: {
@@ -208,7 +185,7 @@ class XMTPResearchAgent {
       console.log(`   Query: "${messageContent}"\n`);
 
       try {
-        // Process the research request
+        // Process the research request with Claude + Locus MCP
         const response = await this.handleResearchRequest(messageContent);
 
         // Send response back via XMTP
@@ -246,6 +223,8 @@ class XMTPResearchAgent {
       console.log(`\n📬 Agent Address: ${this.agent.address}`);
       console.log(`📊 InboxId: ${this.agent.client.inboxId}`);
       console.log(`🌐 Environment: ${XMTP_ENV}`);
+      console.log(`🤖 AI: Claude 3.5 Sonnet`);
+      console.log(`💰 Payments: Locus MCP (multi-facilitator)`);
       
       if (XMTP_ENV === 'production') {
         console.log('✅ Users can message you on xmtp.chat!');
@@ -256,9 +235,9 @@ class XMTPResearchAgent {
       
       console.log(`\n💡 Send a message to start researching!\n`);
       console.log('Example queries:');
-      console.log('  - "What\'s Bitcoin\'s price?"');
-      console.log('  - "Is Ethereum sentiment bullish?"');
-      console.log('  - "Full research on Solana"\n');
+      console.log('  - "What\'s Bitcoin\'s price and sentiment?"');
+      console.log('  - "Give me technical analysis on ETH"');
+      console.log('  - "Full research on Base ecosystem tokens"\n');
     });
 
     // Start the agent
@@ -266,142 +245,97 @@ class XMTPResearchAgent {
   }
 
   private async handleResearchRequest(query: string): Promise<string> {
-    console.log(`🔍 Processing research request: "${query}"`);
+    console.log(`🔍 Processing research request with Claude + Locus MCP: "${query}"`);
 
     try {
-      // Step 1: Analyze the query with GPT-4 to determine what data is needed
-      const researchPlan = await this.planResearch(query);
-      console.log('📋 Research plan:', JSON.stringify(researchPlan, null, 2));
+      // Use Claude Agent SDK with Locus MCP
+      // Claude will autonomously decide which x402 tools to use
+      const response = query({
+        prompt: `You are a crypto research agent with access to multiple x402 data services across different facilitators.
 
-      // Step 2: Fetch data from x402 services (paying with USDC)
-      const data: any = {};
+AVAILABLE SERVICES:
+- ta(symbol: string) - Technical analysis for Base network tokens (Locus facilitator)
+- Additional x402 services from CDP facilitator marketplace (price data, sentiment, on-chain metrics)
+
+USER REQUEST: ${query}
+
+Analyze the request and use the appropriate x402 services to gather comprehensive data. Then synthesize your findings into a clear, actionable research report.
+
+Format your response with:
+📊 Executive Summary
+📈 Data Analysis  
+💡 Key Insights
+💰 Research Cost (mention USDC spent on data services)
+
+Be thorough but concise.`,
+        options: {
+          model: 'claude-3-5-sonnet-20241022',
+          mcpServers: {
+            locus: {
+              type: 'sse',
+              url: LOCUS_MCP_SERVER_URL,
+              headers: {
+                'Authorization': `Bearer ${LOCUS_API_KEY}`,
+                'X-API-Key': LOCUS_API_KEY,
+              },
+            },
+          },
+          permissionMode: 'bypassPermissions', // For autonomous operation
+          maxTurns: 10,
+        },
+      });
+
+      // Collect the full response
+      let fullResponse = '';
+      let toolsUsed: string[] = [];
       let totalCost = 0;
 
-      if (researchPlan.needsMarketData) {
-        console.log('\n💰 Fetching market data ($0.10)...');
-        try {
-          const result = await this.x402Client.post(`${MARKET_DATA_SERVICE}/api/market`, {
-            query: query,
-          });
-          data.marketData = result.data.data;
-          totalCost += 0.1;
-          console.log('✅ Market data received');
-        } catch (error) {
-          console.error('❌ Failed to fetch market data:', error);
-          data.marketData = { error: 'Service unavailable' };
+      for await (const event of response) {
+        if (event.type === 'assistant') {
+          // Collect assistant messages
+          const content = event.message.content;
+          for (const block of content) {
+            if (block.type === 'text') {
+              fullResponse += block.text;
+            } else if (block.type === 'tool_use') {
+              console.log(`🔧 Claude using tool: ${block.name}`);
+              toolsUsed.push(block.name);
+            }
+          }
+        } else if (event.type === 'result') {
+          console.log(`\n✅ Research completed in ${event.duration_ms}ms`);
+          console.log(`   Turns: ${event.num_turns}`);
+          console.log(`   Cost: $${event.total_cost_usd.toFixed(4)} USD`);
+          console.log(`   Tools used: ${toolsUsed.join(', ') || 'none'}`);
+          
+          totalCost = event.total_cost_usd;
+          
+          if (event.subtype === 'success') {
+            fullResponse = event.result || fullResponse;
+          } else if (event.subtype === 'error_max_turns') {
+            fullResponse += '\n\n⚠️ Research reached maximum turns. Results may be incomplete.';
+          }
         }
       }
 
-      if (researchPlan.needsSentiment) {
-        console.log('\n😊 Fetching sentiment analysis ($0.15)...');
-        try {
-          const result = await this.x402Client.post(`${SENTIMENT_SERVICE}/api/sentiment`, {
-            query: query,
-          });
-          data.sentiment = result.data.data;
-          totalCost += 0.15;
-          console.log('✅ Sentiment data received');
-        } catch (error) {
-          console.error('❌ Failed to fetch sentiment data:', error);
-          data.sentiment = { error: 'Service unavailable' };
-        }
-      }
+      return fullResponse || 'No response generated. Please try again.';
 
-      if (researchPlan.needsOnchain) {
-        console.log('\n⛓️  Fetching on-chain data ($0.20)...');
-        try {
-          const result = await this.x402Client.post(`${ONCHAIN_SERVICE}/api/onchain`, {
-            query: query,
-          });
-          data.onchain = result.data.data;
-          totalCost += 0.2;
-          console.log('✅ On-chain data received');
-        } catch (error) {
-          console.error('❌ Failed to fetch on-chain data:', error);
-          data.onchain = { error: 'Service unavailable' };
-        }
-      }
-
-      console.log(`\n💵 Total cost: $${totalCost.toFixed(2)} USDC`);
-
-      // Step 3: Synthesize results with GPT-4
-      console.log('\n🤖 Synthesizing research report with GPT-4...');
-      const report = await this.synthesizeReport(query, data, totalCost);
-      console.log('✅ Report generated');
-
-      return report;
     } catch (error) {
       console.error('❌ Error in handleResearchRequest:', error);
+      
+      // Provide helpful error message
+      if (error instanceof Error) {
+        if (error.message.includes('API key')) {
+          return '❌ Locus API key error. Please check your LOCUS_API_KEY configuration.';
+        } else if (error.message.includes('MCP')) {
+          return '❌ Error connecting to Locus MCP server. Please check your configuration.';
+        } else if (error.message.includes('Anthropic')) {
+          return '❌ Claude API error. Please check your ANTHROPIC_API_KEY.';
+        }
+      }
+      
       throw error;
     }
-  }
-
-  private async planResearch(query: string): Promise<ResearchRequest> {
-    const completion = await this.openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: [
-        {
-          role: 'system',
-          content: `You are a research planner for crypto assets. Analyze the user's query and determine which data sources are needed:
-
-- Market data ($0.10): price, volume, trading data, market cap
-- Sentiment ($0.15): social media, news sentiment, fear/greed index
-- Onchain ($0.20): blockchain transactions, smart contract data, whale activity
-
-Respond with JSON only: {"needsMarketData": boolean, "needsSentiment": boolean, "needsOnchain": boolean}
-
-Examples:
-- "What's Bitcoin's price?" → {"needsMarketData": true, "needsSentiment": false, "needsOnchain": false}
-- "Is Ethereum sentiment bullish?" → {"needsMarketData": false, "needsSentiment": true, "needsOnchain": false}
-- "Full research on Solana" → {"needsMarketData": true, "needsSentiment": true, "needsOnchain": true}`,
-        },
-        {
-          role: 'user',
-          content: query,
-        },
-      ],
-      response_format: { type: 'json_object' },
-    });
-
-    const plan = JSON.parse(completion.choices[0].message.content || '{}');
-
-    return {
-      query,
-      needsMarketData: plan.needsMarketData || false,
-      needsSentiment: plan.needsSentiment || false,
-      needsOnchain: plan.needsOnchain || false,
-    };
-  }
-
-  private async synthesizeReport(query: string, data: any, cost: number): Promise<string> {
-    const completion = await this.openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: [
-        {
-          role: 'system',
-          content: `You are a professional crypto research analyst. Synthesize the provided data into a clear, comprehensive, and actionable report.
-
-Format the report with:
-- Executive Summary (key findings)
-- Detailed Analysis (break down each data source)
-- Key Insights (actionable takeaways)
-- Research Cost (mention the cost paid for this premium data)
-
-Be concise but thorough. Use emojis for readability.`,
-        },
-        {
-          role: 'user',
-          content: `Query: ${query}
-
-Data collected (cost: $${cost.toFixed(2)} USDC):
-${JSON.stringify(data, null, 2)}
-
-Provide a comprehensive research report.`,
-        },
-      ],
-    });
-
-    return completion.choices[0].message.content || 'No report generated';
   }
 }
 
