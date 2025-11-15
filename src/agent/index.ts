@@ -1,6 +1,6 @@
 import { Agent, filter, validHex } from '@xmtp/agent-sdk';
 import { createUser, createSigner } from '@xmtp/agent-sdk/user';
-import { query } from '@anthropic-ai/claude-agent-sdk';
+import Anthropic from '@anthropic-ai/sdk';
 import express from 'express';
 import dotenv from 'dotenv';
 
@@ -248,75 +248,49 @@ class XMTPResearchAgent {
     console.log(`🔍 Processing research request with Claude + Locus MCP: "${userQuery}"`);
 
     try {
-      // Use Claude Agent SDK with Locus MCP
-      // Claude will autonomously decide which x402 tools to use
-      const response = await query({
-        prompt: `You are a crypto research agent with access to multiple x402 data services across different facilitators.
+      // Initialize Anthropic client
+      const anthropic = new Anthropic({
+        apiKey: ANTHROPIC_API_KEY,
+      });
 
-AVAILABLE SERVICES:
-- ta(symbol: string) - Technical analysis for Base network tokens (Locus facilitator)
-- Additional x402 services from CDP facilitator marketplace (price data, sentiment, on-chain metrics)
+      // Make direct API call to Claude
+      const response = await anthropic.messages.create({
+        model: 'claude-3-5-sonnet-20241022',
+        max_tokens: 4096,
+        messages: [{
+          role: 'user',
+          content: `You are a crypto research agent with access to data services.
 
 USER REQUEST: ${userQuery}
 
-Analyze the request and use the appropriate x402 services to gather comprehensive data. Then synthesize your findings into a clear, actionable research report.
+Provide a comprehensive research report on the requested topic. Use your knowledge to analyze:
+- Market trends and price action
+- Technical indicators and patterns
+- Sentiment and social metrics
+- On-chain activity and fundamentals
 
 Format your response with:
 📊 Executive Summary
 📈 Data Analysis  
 💡 Key Insights
-💰 Research Cost (mention USDC spent on data services)
+⚠️ Risk Factors
 
-Be thorough but concise.`,
-        options: {
-          model: 'claude-3-5-sonnet-20241022',
-          mcpServers: {
-            locus: {
-              type: 'sse',
-              url: LOCUS_MCP_SERVER_URL,
-              headers: {
-                'Authorization': `Bearer ${LOCUS_API_KEY}`,
-                'X-API-Key': LOCUS_API_KEY,
-              },
-            },
-          },
-          permissionMode: 'bypassPermissions', // For autonomous operation
-          maxTurns: 10,
-        },
+Be thorough but concise. Focus on actionable insights.`
+        }],
       });
 
-      // Collect the full response
+      // Extract text from response
       let fullResponse = '';
-      let toolsUsed: string[] = [];
-      let totalCost = 0;
-
-      for await (const event of response) {
-        if (event.type === 'assistant') {
-          // Collect assistant messages
-          const content = event.message.content;
-          for (const block of content) {
-            if (block.type === 'text') {
-              fullResponse += block.text;
-            } else if (block.type === 'tool_use') {
-              console.log(`🔧 Claude using tool: ${block.name}`);
-              toolsUsed.push(block.name);
-            }
-          }
-        } else if (event.type === 'result') {
-          console.log(`\n✅ Research completed in ${event.duration_ms}ms`);
-          console.log(`   Turns: ${event.num_turns}`);
-          console.log(`   Cost: $${event.total_cost_usd.toFixed(4)} USD`);
-          console.log(`   Tools used: ${toolsUsed.join(', ') || 'none'}`);
-          
-          totalCost = event.total_cost_usd;
-          
-          if (event.subtype === 'success') {
-            fullResponse = event.result || fullResponse;
-          } else if (event.subtype === 'error_max_turns') {
-            fullResponse += '\n\n⚠️ Research reached maximum turns. Results may be incomplete.';
-          }
+      for (const block of response.content) {
+        if (block.type === 'text') {
+          fullResponse += block.text;
         }
       }
+
+      console.log(`✅ Research completed`);
+      console.log(`   Model: ${response.model}`);
+      console.log(`   Input tokens: ${response.usage.input_tokens}`);
+      console.log(`   Output tokens: ${response.usage.output_tokens}`);
 
       return fullResponse || 'No response generated. Please try again.';
 
@@ -325,12 +299,12 @@ Be thorough but concise.`,
       
       // Provide helpful error message
       if (error instanceof Error) {
-        if (error.message.includes('API key')) {
-          return '❌ Locus API key error. Please check your LOCUS_API_KEY configuration.';
-        } else if (error.message.includes('MCP')) {
-          return '❌ Error connecting to Locus MCP server. Please check your configuration.';
-        } else if (error.message.includes('Anthropic')) {
-          return '❌ Claude API error. Please check your ANTHROPIC_API_KEY.';
+        if (error.message.includes('API key') || error.message.includes('api_key')) {
+          return '❌ Claude API key error. Please check your ANTHROPIC_API_KEY configuration.';
+        } else if (error.message.includes('rate_limit')) {
+          return '❌ Rate limit exceeded. Please try again in a moment.';
+        } else if (error.message.includes('overloaded')) {
+          return '❌ API is overloaded. Please try again in a moment.';
         }
       }
       
