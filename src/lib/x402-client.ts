@@ -1,156 +1,107 @@
-import { createPublicClient, createWalletClient, http, parseUnits, Address } from 'viem';
-import { base } from 'viem/chains';
+import { wrapFetchWithPayment, decodeXPaymentResponse } from 'x402-fetch';
+import { createWalletClient, http } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import axios from 'axios';
+import { base, baseSepolia } from 'viem/chains';
 
-// ERC-20 ABI for USDC transfers
-const ERC20_ABI = [
-  {
-    inputs: [
-      { name: 'to', type: 'address' },
-      { name: 'amount', type: 'uint256' },
-    ],
-    name: 'transfer',
-    outputs: [{ name: '', type: 'bool' }],
-    stateMutability: 'nonpayable',
-    type: 'function',
-  },
-  {
-    inputs: [{ name: 'account', type: 'address' }],
-    name: 'balanceOf',
-    outputs: [{ name: '', type: 'uint256' }],
-    stateMutability: 'view',
-    type: 'function',
-  },
-] as const;
-
-interface X402Config {
+interface X402ClientConfig {
   rpcUrl: string;
   privateKey: string;
-  usdcAddress: string;
+  network?: 'mainnet' | 'testnet';
 }
 
-interface X402PaymentInfo {
-  amount: string; // USDC amount in human-readable format (e.g., "0.10")
-  recipient: string; // Service's payment address
-  nonce: string; // Unique payment identifier
+interface X402Response {
+  data: any;
+  paymentResponse?: any;
 }
 
+/**
+ * x402 Client for autonomous agent payments
+ * Uses official x402-fetch to handle payment flow automatically
+ */
 export class X402Client {
-  private publicClient: any;
-  private walletClient: any;
   private account: any;
-  private usdcAddress: Address;
+  private fetchWithPayment: typeof fetch;
 
-  constructor(config: X402Config) {
+  constructor(config: X402ClientConfig) {
+    const isTestnet = config.network === 'testnet';
+    const chain = isTestnet ? baseSepolia : base;
+
+    // Create wallet account from private key
     this.account = privateKeyToAccount(config.privateKey as `0x${string}`);
 
-    this.publicClient = createPublicClient({
-      chain: base,
-      transport: http(config.rpcUrl),
-    });
+    // Wrap fetch with x402 payment capabilities
+    this.fetchWithPayment = wrapFetchWithPayment(fetch, this.account);
 
-    this.walletClient = createWalletClient({
-      account: this.account,
-      chain: base,
-      transport: http(config.rpcUrl),
-    });
-
-    this.usdcAddress = config.usdcAddress as Address;
+    console.log(`✅ x402 Client initialized`);
+    console.log(`   Network: ${isTestnet ? 'Base Sepolia (testnet)' : 'Base (mainnet)'}`);
+    console.log(`   Wallet: ${this.account.address}`);
   }
 
   /**
    * Make a request to an x402-enabled service
-   * 1. Get payment info from service (402 Payment Required)
-   * 2. Pay with USDC on Base
-   * 3. Retry request with payment proof
+   * Automatically handles 402 responses and payment flow
    */
-  async request(serviceUrl: string, endpoint: string, data: any): Promise<any> {
-    console.log(`🔄 x402 request to ${serviceUrl}${endpoint}`);
-
-    // Step 1: Initial request (will get 402 response with payment info)
-    let response;
+  async request(url: string, options: RequestInit = {}): Promise<X402Response> {
     try {
-      response = await axios.post(`${serviceUrl}${endpoint}`, data);
-      // If no 402, service might be free or already paid
-      return response.data;
-    } catch (error: any) {
-      if (error.response?.status !== 402) {
-        throw new Error(`Service error: ${error.message}`);
+      console.log(`🔄 x402 request to ${url}`);
+
+      // Make request - x402-fetch automatically handles payment if needed
+      const response = await this.fetchWithPayment(url, {
+        method: options.method || 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...options.headers,
+        },
+        body: options.body,
+      });
+
+      // Parse response body
+      const data = await response.json();
+
+      // Decode payment response if present
+      const paymentResponseHeader = response.headers.get('x-payment-response');
+      const paymentResponse = paymentResponseHeader
+        ? decodeXPaymentResponse(paymentResponseHeader)
+        : undefined;
+
+      if (paymentResponse) {
+        console.log(`✅ Payment completed successfully`);
+        console.log(`   Transaction: ${paymentResponse.txHash || 'pending'}`);
       }
 
-      // Step 2: Extract payment info from 402 response
-      const paymentInfo: X402PaymentInfo = error.response.data;
-      console.log(`💳 Payment required: ${paymentInfo.amount} USDC to ${paymentInfo.recipient}`);
-
-      // Step 3: Execute payment on Base
-      const txHash = await this.payUSDC(
-        paymentInfo.recipient as Address,
-        paymentInfo.amount
-      );
-      console.log(`✅ Payment sent: ${txHash}`);
-
-      // Step 4: Retry request with payment proof
-      response = await axios.post(
-        `${serviceUrl}${endpoint}`,
+      return {
         data,
-        {
-          headers: {
-            'X-Payment-Hash': txHash,
-            'X-Payment-Nonce': paymentInfo.nonce,
-          },
-        }
-      );
-
-      return response.data;
+        paymentResponse,
+      };
+    } catch (error: any) {
+      console.error(`❌ x402 request failed:`, error.message);
+      throw error;
     }
   }
 
   /**
-   * Send USDC payment on Base
+   * Helper to make POST requests to x402 services
    */
-  private async payUSDC(to: Address, amount: string): Promise<string> {
-    // Convert human-readable amount to USDC units (6 decimals)
-    const amountInUnits = parseUnits(amount, 6);
-
-    // Check balance first
-    const balance = await this.publicClient.readContract({
-      address: this.usdcAddress,
-      abi: ERC20_ABI,
-      functionName: 'balanceOf',
-      args: [this.account.address],
+  async post(url: string, body: any): Promise<X402Response> {
+    return this.request(url, {
+      method: 'POST',
+      body: JSON.stringify(body),
     });
-
-    if (balance < amountInUnits) {
-      throw new Error(`Insufficient USDC balance. Have: ${balance}, Need: ${amountInUnits}`);
-    }
-
-    // Execute transfer
-    const hash = await this.walletClient.writeContract({
-      address: this.usdcAddress,
-      abi: ERC20_ABI,
-      functionName: 'transfer',
-      args: [to, amountInUnits],
-    });
-
-    // Wait for confirmation
-    await this.publicClient.waitForTransactionReceipt({ hash });
-
-    return hash;
   }
 
   /**
-   * Get current USDC balance
+   * Helper to make GET requests to x402 services
    */
-  async getBalance(): Promise<string> {
-    const balance = await this.publicClient.readContract({
-      address: this.usdcAddress,
-      abi: ERC20_ABI,
-      functionName: 'balanceOf',
-      args: [this.account.address],
+  async get(url: string): Promise<X402Response> {
+    return this.request(url, {
+      method: 'GET',
     });
+  }
 
-    // Convert to human-readable format
-    return (Number(balance) / 1_000_000).toFixed(2);
+  /**
+   * Get wallet address
+   */
+  getAddress(): string {
+    return this.account.address;
   }
 }

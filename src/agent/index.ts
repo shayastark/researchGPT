@@ -10,7 +10,7 @@ const XMTP_KEY = process.env.XMTP_KEY || '';
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
 const BASE_RPC_URL = process.env.BASE_RPC_URL || 'https://mainnet.base.org';
 const PRIVATE_KEY = process.env.PRIVATE_KEY || '';
-const USDC_ADDRESS = process.env.USDC_ADDRESS || '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'; // Base USDC
+const USE_MAINNET = process.env.USE_MAINNET === 'true';
 
 // Service endpoints (x402-enabled)
 const MARKET_DATA_SERVICE = process.env.MARKET_DATA_SERVICE || 'http://localhost:3001';
@@ -42,68 +42,87 @@ class XMTPResearchAgent {
     this.x402Client = new X402Client({
       rpcUrl: BASE_RPC_URL,
       privateKey: PRIVATE_KEY,
-      usdcAddress: USDC_ADDRESS,
+      network: USE_MAINNET ? 'mainnet' : 'testnet',
     });
+
+    console.log(`🤖 XMTP Research Agent Configuration:`);
+    console.log(`   Network: ${USE_MAINNET ? 'Base (mainnet)' : 'Base Sepolia (testnet)'}`);
+    console.log(`   Wallet: ${this.x402Client.getAddress()}`);
   }
 
   async start() {
-    console.log('🤖 XMTP Research Agent starting...');
+    console.log('\n🤖 XMTP Research Agent starting...');
+    console.log('✅ Agent is now listening for messages\n');
 
     // Listen for incoming messages
     this.agent.on('message', async (message: any) => {
-      console.log(`📨 Received message from ${message.sender}: ${message.content}`);
+      console.log(`\n📨 Received message from ${message.sender}`);
+      console.log(`   Query: "${message.content}"\n`);
 
       try {
         // Process the research request
         const response = await this.handleResearchRequest(message.content, message.sender);
-        
+
         // Send response back via XMTP
         await this.agent.sendMessage(message.sender, response);
+        console.log(`✅ Response sent to ${message.sender}\n`);
       } catch (error) {
-        console.error('Error handling message:', error);
-        await this.agent.sendMessage(
-          message.sender,
-          `❌ Error processing your request: ${error instanceof Error ? error.message : 'Unknown error'}`
-        );
+        console.error('❌ Error handling message:', error);
+        const errorMessage = `❌ Error processing your request: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`;
+        await this.agent.sendMessage(message.sender, errorMessage);
       }
     });
-
-    console.log('✅ Agent is now listening for messages');
   }
 
   private async handleResearchRequest(query: string, sender: string): Promise<string> {
-    console.log(`🔍 Processing research request: ${query}`);
+    console.log(`🔍 Processing research request: "${query}"`);
 
     // Step 1: Analyze the query with GPT-4 to determine what data is needed
     const researchPlan = await this.planResearch(query);
-    console.log('📋 Research plan:', researchPlan);
+    console.log('📋 Research plan:', JSON.stringify(researchPlan, null, 2));
 
     // Step 2: Fetch data from x402 services (paying with USDC)
     const data: any = {};
+    let totalCost = 0;
 
     if (researchPlan.needsMarketData) {
-      console.log('💰 Fetching market data...');
-      data.marketData = await this.x402Client.request(MARKET_DATA_SERVICE, '/api/market', {
+      console.log('\n💰 Fetching market data ($0.10)...');
+      const result = await this.x402Client.post(`${MARKET_DATA_SERVICE}/api/market`, {
         query: query,
       });
+      data.marketData = result.data.data;
+      totalCost += 0.1;
+      console.log('✅ Market data received');
     }
 
     if (researchPlan.needsSentiment) {
-      console.log('😊 Fetching sentiment analysis...');
-      data.sentiment = await this.x402Client.request(SENTIMENT_SERVICE, '/api/sentiment', {
+      console.log('\n😊 Fetching sentiment analysis ($0.15)...');
+      const result = await this.x402Client.post(`${SENTIMENT_SERVICE}/api/sentiment`, {
         query: query,
       });
+      data.sentiment = result.data.data;
+      totalCost += 0.15;
+      console.log('✅ Sentiment data received');
     }
 
     if (researchPlan.needsOnchain) {
-      console.log('⛓️  Fetching on-chain data...');
-      data.onchain = await this.x402Client.request(ONCHAIN_SERVICE, '/api/onchain', {
+      console.log('\n⛓️  Fetching on-chain data ($0.20)...');
+      const result = await this.x402Client.post(`${ONCHAIN_SERVICE}/api/onchain`, {
         query: query,
       });
+      data.onchain = result.data.data;
+      totalCost += 0.2;
+      console.log('✅ On-chain data received');
     }
 
+    console.log(`\n💵 Total cost: $${totalCost.toFixed(2)} USDC`);
+
     // Step 3: Synthesize results with GPT-4
-    const report = await this.synthesizeReport(query, data);
+    console.log('\n🤖 Synthesizing research report with GPT-4...');
+    const report = await this.synthesizeReport(query, data, totalCost);
+    console.log('✅ Report generated');
 
     return report;
   }
@@ -114,12 +133,18 @@ class XMTPResearchAgent {
       messages: [
         {
           role: 'system',
-          content: `You are a research planner. Analyze the user's query and determine which data sources are needed:
-- Market data: price, volume, trading data
-- Sentiment: social media, news sentiment
-- Onchain: blockchain transactions, smart contract data
+          content: `You are a research planner for crypto assets. Analyze the user's query and determine which data sources are needed:
 
-Respond with JSON: {"needsMarketData": boolean, "needsSentiment": boolean, "needsOnchain": boolean}`,
+- Market data ($0.10): price, volume, trading data, market cap
+- Sentiment ($0.15): social media, news sentiment, fear/greed index
+- Onchain ($0.20): blockchain transactions, smart contract data, whale activity
+
+Respond with JSON only: {"needsMarketData": boolean, "needsSentiment": boolean, "needsOnchain": boolean}
+
+Examples:
+- "What's Bitcoin's price?" → {"needsMarketData": true, "needsSentiment": false, "needsOnchain": false}
+- "Is Ethereum sentiment bullish?" → {"needsMarketData": false, "needsSentiment": true, "needsOnchain": false}
+- "Full research on Solana" → {"needsMarketData": true, "needsSentiment": true, "needsOnchain": true}`,
         },
         {
           role: 'user',
@@ -130,7 +155,7 @@ Respond with JSON: {"needsMarketData": boolean, "needsSentiment": boolean, "need
     });
 
     const plan = JSON.parse(completion.choices[0].message.content || '{}');
-    
+
     return {
       query,
       needsMarketData: plan.needsMarketData || false,
@@ -139,17 +164,30 @@ Respond with JSON: {"needsMarketData": boolean, "needsSentiment": boolean, "need
     };
   }
 
-  private async synthesizeReport(query: string, data: any): Promise<string> {
+  private async synthesizeReport(query: string, data: any, cost: number): Promise<string> {
     const completion = await this.openai.chat.completions.create({
       model: 'gpt-4',
       messages: [
         {
           role: 'system',
-          content: 'You are a crypto research analyst. Synthesize the provided data into a clear, actionable report.',
+          content: `You are a professional crypto research analyst. Synthesize the provided data into a clear, comprehensive, and actionable report.
+
+Format the report with:
+- Executive Summary (key findings)
+- Detailed Analysis (break down each data source)
+- Key Insights (actionable takeaways)
+- Research Cost (mention the cost paid for this premium data)
+
+Be concise but thorough. Use emojis for readability.`,
         },
         {
           role: 'user',
-          content: `Query: ${query}\n\nData collected:\n${JSON.stringify(data, null, 2)}\n\nProvide a comprehensive research report.`,
+          content: `Query: ${query}
+
+Data collected (cost: $${cost.toFixed(2)} USDC):
+${JSON.stringify(data, null, 2)}
+
+Provide a comprehensive research report.`,
         },
       ],
     });
