@@ -25,46 +25,19 @@ console.log(`   Network: ${network}`);
 console.log(`   Facilitator: ${USE_MAINNET ? 'CDP (mainnet)' : 'x402.org (testnet)'}`);
 console.log(`   Payment Address: ${PAYMENT_ADDRESS}`);
 
+// Validate payment address
+if (!PAYMENT_ADDRESS) {
+  throw new Error('PAYMENT_ADDRESS environment variable is required');
+}
+
 // Apply x402 payment middleware
 app.use(
   paymentMiddleware(
-    PAYMENT_ADDRESS,
+    PAYMENT_ADDRESS as `0x${string}`,
     {
       'POST /api/market': {
         price: '$0.10',
-        network: network,
-        config: {
-          description: 'Get premium crypto market data including price, volume, market cap, and trading metrics',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              query: {
-                type: 'string',
-                description: 'Cryptocurrency or asset to analyze (e.g., "Bitcoin", "ETH")',
-              },
-            },
-            required: ['query'],
-          },
-          outputSchema: {
-            type: 'object',
-            properties: {
-              success: { type: 'boolean' },
-              data: {
-                type: 'object',
-                properties: {
-                  asset: { type: 'string' },
-                  price: { type: 'number' },
-                  volume24h: { type: 'number' },
-                  change24h: { type: 'number' },
-                  marketCap: { type: 'number' },
-                  dominance: { type: 'number' },
-                  lastUpdated: { type: 'string' },
-                  source: { type: 'string' },
-                },
-              },
-            },
-          },
-        },
+        network: network as any,
       },
     },
     facilitatorConfig
