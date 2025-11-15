@@ -1,0 +1,46 @@
+{
+  "name": "xmtp-research-agent",
+  "version": "1.0.0",
+  "description": "XMTP research agent with x402 payment protocol on Base blockchain",
+  "main": "dist/agent/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/agent/index.js",
+    "dev": "ts-node src/agent/index.ts",
+    "service:market": "ts-node src/services/market-data.ts",
+    "service:sentiment": "ts-node src/services/sentiment.ts",
+    "service:onchain": "ts-node src/services/onchain.ts",
+    "services:all": "concurrently \"npm run service:market\" \"npm run service:sentiment\" \"npm run service:onchain\""
+  },
+  "keywords": [
+    "xmtp",
+    "x402",
+    "base",
+    "blockchain",
+    "ai-agent"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@xmtp/agent-sdk": "^0.1.0",
+    "viem": "^2.21.0",
+    "express": "^4.18.2",
+    "openai": "^4.20.0",
+    "dotenv": "^16.3.1",
+    "cors": "^2.8.5",
+    "x402-fetch": "^0.1.0",
+    "x402-express": "^0.1.0",
+    "@coinbase/x402": "^0.1.0"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.20",
+    "@types/node": "^20.9.0",
+    "@types/cors": "^2.8.15",
+    "typescript": "^5.2.2",
+    "ts-node": "^10.9.1",
+    "concurrently": "^8.2.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
