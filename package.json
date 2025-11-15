@@ -27,14 +27,11 @@
   "license": "MIT",
   "dependencies": {
     "@xmtp/agent-sdk": "^1.1.14",
-    "viem": "^2.21.0",
+    "@anthropic-ai/claude-agent-sdk": "^0.1.0",
+    "@locus/mcp-client-credentials": "^1.0.0",
     "express": "^4.18.2",
-    "openai": "^4.20.0",
     "dotenv": "^16.3.1",
-    "cors": "^2.8.5",
-    "x402-fetch": "^0.7.0",
-    "x402-express": "^0.7.1",
-    "@coinbase/x402": "^0.7.1"
+    "cors": "^2.8.5"
   },
   "devDependencies": {
     "@types/express": "^4.17.20",
