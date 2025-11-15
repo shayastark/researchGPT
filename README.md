@@ -2,6 +2,22 @@
 
 An autonomous research agent that accepts research requests via XMTP, pays for premium data using the x402 protocol with USDC on Base blockchain, and returns comprehensive AI-synthesized reports.
 
+## ⚠️ IMPORTANT: For xmtp.chat Users
+
+If you want users on **xmtp.chat** to message your agent, you **MUST** use the production network:
+
+```bash
+# Set environment to production
+XMTP_ENV=production
+
+# Initialize on production network (one time only)
+npm run initialize-production
+```
+
+**Why?** xmtp.chat uses the PRODUCTION XMTP network. If your agent is on the DEV network, users will get "Unable to get inbox ID for address" error.
+
+📖 See **[NETWORK_SETUP.md](./NETWORK_SETUP.md)** for detailed network configuration guide.
+
 ## 🏗️ Architecture
 
 ```
@@ -248,6 +264,27 @@ The agent will:
 2. Pay for needed data services
 3. Synthesize a comprehensive report
 4. Reply via XMTP
+
+## 📚 Documentation
+
+- **[QUICKSTART.md](./QUICKSTART.md)** - 5-minute quick start guide
+- **[XMTP_SETUP.md](./XMTP_SETUP.md)** - Detailed XMTP agent setup guide  
+- **[NETWORK_SETUP.md](./NETWORK_SETUP.md)** - XMTP network configuration (dev vs production)
+- **[DEPLOYMENT.md](./DEPLOYMENT.md)** - Railway deployment instructions
+- **[PROJECT_STATUS.md](./PROJECT_STATUS.md)** - Current project status and next steps
+
+## 🔧 Diagnostic Tools
+
+```bash
+# Check which XMTP networks you're registered on
+npm run check-network
+
+# Initialize on production network for xmtp.chat
+npm run initialize-production
+
+# Generate encryption key for database
+npm run generate-credentials
+```
 
 ## 📝 License
 

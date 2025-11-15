@@ -65,6 +65,13 @@ class XMTPResearchAgent {
     console.log(`   XMTP Network: ${XMTP_ENV}`);
     console.log(`   Base Network: ${USE_MAINNET ? 'Base (mainnet)' : 'Base Sepolia (testnet)'}`);
     console.log(`   Wallet: ${this.x402Client.getAddress()}`);
+    
+    // Warning if on dev network
+    if (XMTP_ENV === 'dev') {
+      console.log('\n⚠️  WARNING: Agent is on DEV network');
+      console.log('   Users on xmtp.chat will NOT be able to message you!');
+      console.log('   To fix: Set XMTP_ENV=production and run npm run initialize-production');
+    }
   }
 
   async initialize() {
@@ -164,6 +171,14 @@ class XMTPResearchAgent {
       console.log(`\n📬 Agent Address: ${this.agent.address}`);
       console.log(`📊 InboxId: ${this.agent.client.inboxId}`);
       console.log(`🌐 Environment: ${XMTP_ENV}`);
+      
+      if (XMTP_ENV === 'production') {
+        console.log('✅ Users can message you on xmtp.chat!');
+      } else if (XMTP_ENV === 'dev') {
+        console.log('⚠️  DEV mode: Users on xmtp.chat CANNOT message you');
+        console.log('   Use a dev client or switch to production');
+      }
+      
       console.log(`\n💡 Send a message to start researching!\n`);
       console.log('Example queries:');
       console.log('  - "What\'s Bitcoin\'s price?"');

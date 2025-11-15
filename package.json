@@ -11,7 +11,9 @@
     "service:sentiment": "ts-node src/services/sentiment.ts",
     "service:onchain": "ts-node src/services/onchain.ts",
     "services:all": "concurrently \"npm run service:market\" \"npm run service:sentiment\" \"npm run service:onchain\"",
-    "generate-credentials": "node scripts/generate-credentials.ts"
+    "generate-credentials": "ts-node scripts/generate-credentials.ts",
+    "initialize-production": "ts-node scripts/initialize-agent-production.ts",
+    "check-network": "ts-node scripts/check-agent-network.ts"
   },
   "keywords": [
     "xmtp",
