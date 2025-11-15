@@ -1,6 +1,7 @@
 import { Agent, filter, validHex } from '@xmtp/agent-sdk';
 import { createUser, createSigner } from '@xmtp/agent-sdk/user';
 import OpenAI from 'openai';
+import express from 'express';
 import dotenv from 'dotenv';
 import { X402Client } from '../lib/x402-client';
 
@@ -27,6 +28,9 @@ const ONCHAIN_SERVICE = process.env.ONCHAIN_SERVICE || 'http://localhost:3003';
 // Railway volume path for persistent database
 const RAILWAY_VOLUME = process.env.RAILWAY_VOLUME_MOUNT_PATH;
 
+// HTTP server port (for Railway health checks)
+const PORT = parseInt(process.env.PORT || '3000');
+
 interface ResearchRequest {
   query: string;
   needsMarketData: boolean;
@@ -38,6 +42,8 @@ class XMTPResearchAgent {
   private agent!: Agent;
   private openai: OpenAI;
   private x402Client: X402Client;
+  private httpServer: express.Application;
+  private serverStartTime: Date;
 
   constructor() {
     // Validate required environment variables
@@ -51,6 +57,8 @@ class XMTPResearchAgent {
       throw new Error('PRIVATE_KEY environment variable is required');
     }
 
+    this.serverStartTime = new Date();
+
     this.openai = new OpenAI({
       apiKey: OPENAI_API_KEY,
     });
@@ -61,10 +69,77 @@ class XMTPResearchAgent {
       network: USE_MAINNET ? 'mainnet' : 'testnet',
     });
 
+    // Initialize HTTP server for health checks
+    this.httpServer = express();
+    this.httpServer.use(express.json());
+    this.setupHttpEndpoints();
+
     console.log(`🤖 XMTP Research Agent Configuration:`);
     console.log(`   XMTP Network: ${XMTP_ENV}`);
     console.log(`   Base Network: ${USE_MAINNET ? 'Base (mainnet)' : 'Base Sepolia (testnet)'}`);
     console.log(`   Wallet: ${this.x402Client.getAddress()}`);
+    console.log(`   HTTP Port: ${PORT}`);
+    
+    // Warning if on dev network
+    if (XMTP_ENV === 'dev') {
+      console.log('\n⚠️  WARNING: Agent is on DEV network');
+      console.log('   Users on xmtp.chat will NOT be able to message you!');
+      console.log('   To fix: Set XMTP_ENV=production and run npm run initialize-production');
+    }
+  }
+
+  private setupHttpEndpoints() {
+    // Health check endpoint (required for Railway)
+    this.httpServer.get('/health', (req, res) => {
+      res.json({
+        status: 'healthy',
+        service: 'xmtp-research-agent',
+        uptime: Math.floor((Date.now() - this.serverStartTime.getTime()) / 1000),
+        xmtpNetwork: XMTP_ENV,
+        baseNetwork: USE_MAINNET ? 'mainnet' : 'testnet',
+        address: this.agent?.address || 'not initialized',
+        timestamp: new Date().toISOString(),
+      });
+    });
+
+    // Status endpoint with detailed information
+    this.httpServer.get('/status', (req, res) => {
+      res.json({
+        service: 'XMTP Research Agent',
+        version: '1.0.0',
+        status: 'running',
+        uptime: Math.floor((Date.now() - this.serverStartTime.getTime()) / 1000),
+        configuration: {
+          xmtpNetwork: XMTP_ENV,
+          baseNetwork: USE_MAINNET ? 'mainnet' : 'testnet',
+          agentAddress: this.agent?.address || 'not initialized',
+          inboxId: this.agent?.client?.inboxId || 'not initialized',
+          walletAddress: this.x402Client.getAddress(),
+          volumePath: RAILWAY_VOLUME || 'not configured',
+        },
+        services: {
+          marketData: MARKET_DATA_SERVICE,
+          sentiment: SENTIMENT_SERVICE,
+          onchain: ONCHAIN_SERVICE,
+        },
+        ready: !!this.agent,
+        timestamp: new Date().toISOString(),
+      });
+    });
+
+    // Root endpoint
+    this.httpServer.get('/', (req, res) => {
+      res.json({
+        service: 'XMTP Research Agent',
+        message: 'Agent is running. Send XMTP messages to interact.',
+        agentAddress: this.agent?.address || 'initializing...',
+        xmtpNetwork: XMTP_ENV,
+        endpoints: {
+          health: '/health',
+          status: '/status',
+        },
+      });
+    });
   }
 
   async initialize() {
@@ -99,6 +174,13 @@ class XMTPResearchAgent {
   }
 
   async start() {
+    // Start HTTP server first
+    this.httpServer.listen(PORT, () => {
+      console.log(`\n🌐 HTTP server listening on port ${PORT}`);
+      console.log(`   Health check: http://localhost:${PORT}/health`);
+      console.log(`   Status: http://localhost:${PORT}/status`);
+    });
+
     await this.initialize();
 
     console.log('\n🤖 XMTP Research Agent starting...');
@@ -164,6 +246,14 @@ class XMTPResearchAgent {
       console.log(`\n📬 Agent Address: ${this.agent.address}`);
       console.log(`📊 InboxId: ${this.agent.client.inboxId}`);
       console.log(`🌐 Environment: ${XMTP_ENV}`);
+      
+      if (XMTP_ENV === 'production') {
+        console.log('✅ Users can message you on xmtp.chat!');
+      } else if (XMTP_ENV === 'dev') {
+        console.log('⚠️  DEV mode: Users on xmtp.chat CANNOT message you');
+        console.log('   Use a dev client or switch to production');
+      }
+      
       console.log(`\n💡 Send a message to start researching!\n`);
       console.log('Example queries:');
       console.log('  - "What\'s Bitcoin\'s price?"');

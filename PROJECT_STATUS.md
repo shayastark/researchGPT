@@ -224,12 +224,17 @@ ONCHAIN_SERVICE=https://...
 All documentation is complete and up-to-date:
 
 - `README.md` - Project overview
-- `SETUP_COMPLETE.md` - Setup summary
-- `XMTP_SETUP.md` - Detailed XMTP instructions
-- `DEPLOYMENT.md` - Railway deployment guide
 - `QUICKSTART.md` - 5-minute quick start
+- `XMTP_SETUP.md` - Detailed XMTP instructions
+- `NETWORK_SETUP.md` - XMTP network configuration (dev vs production)
+- `RAILWAY_MAINNET_SETUP.md` - Complete mainnet deployment guide
+- `DEPLOYMENT.md` - Railway deployment guide
+- `SETUP_COMPLETE.md` - Setup summary
 - `REFACTOR_SUMMARY.md` - x402 refactor details
-- `.env.example` - Environment variables
+- `.env.example` - Environment variables template
+- `.env.production.example` - Production configuration template
+- `SOLUTION_SUMMARY.md` - Network issue fix summary
+- `XMTP_NETWORK_FIX.md` - Detailed network troubleshooting
 - `PROJECT_STATUS.md` - This file
 
 ---
@@ -247,6 +252,81 @@ All documentation is complete and up-to-date:
 - ❌ "Need CDP keys for testnet" - **False**, only for mainnet
 - ❌ "Services need complex config schemas" - **False**, simplified in v0.7.x
 
+## 🌐 XMTP Network Issue (FIXED)
+
+### Problem:
+Users trying to message the agent on xmtp.chat got error:
+```
+"Unable to get inbox ID for address. Try again."
+```
+
+### Root Cause:
+**Network mismatch!** XMTP has separate networks:
+- **DEV network** (`XMTP_ENV=dev`) - For development
+- **PRODUCTION network** (`XMTP_ENV=production`) - For real users
+
+**xmtp.chat uses PRODUCTION**, but the agent was likely on DEV. These are completely separate - like different phone networks.
+
+### Solution:
+1. **Check which network you're on:**
+   ```bash
+   npm run check-network
+   ```
+
+2. **Initialize on production:**
+   ```bash
+   npm run initialize-production
+   ```
+
+3. **Update environment:**
+   ```env
+   XMTP_ENV=production  # Must be production for xmtp.chat!
+   ```
+
+4. **Start agent:**
+   ```bash
+   npm run dev
+   ```
+
+### New Tools Added:
+- `npm run check-network` - Check which XMTP networks your agent is registered on
+- `npm run initialize-production` - Initialize agent on production network
+- Enhanced logging to warn if on wrong network
+- New documentation: `NETWORK_SETUP.md`
+
+### Prevention:
+- Agent now displays clear warnings if on DEV network
+- Logs show which network is active on startup
+- Documentation clarified the network distinction
+
+## 🔧 Railway ESM Deployment Issue (FIXED)
+
+### Problem:
+Railway deployment failed with error:
+```
+Error [ERR_PACKAGE_PATH_NOT_EXPORTED]: No "exports" main defined in 
+/app/node_modules/@xmtp/agent-sdk/package.json
+```
+
+### Root Cause:
+`@xmtp/agent-sdk` is an ESM-only package, but `package.json` was missing `"type": "module"` declaration.
+
+### Solution:
+Added to `package.json`:
+```json
+{
+  "type": "module",
+  ...
+}
+```
+
+This tells Node.js to treat all `.js` files as ES modules, which is required for the XMTP Agent SDK.
+
+### Also Updated:
+- `tsconfig.json` - Added `ts-node` ESM configuration
+- All npm scripts - Updated to use ESM loader for development
+- Kept `npm start` simple for Railway production deployment
+
 ---
 
 ## 💡 Tips for Next Agent
@@ -262,6 +342,7 @@ All documentation is complete and up-to-date:
 - Maintain x402 payment flow (don't break it)
 
 ### When User Reports Errors:
+- **"Unable to get inbox ID"** - Check XMTP network mismatch (use `npm run check-network`)
 - Check if it's an environment variable issue
 - Verify USDC balance in wallet
 - Check Railway logs for specific errors
