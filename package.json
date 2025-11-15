@@ -28,7 +28,6 @@
   "dependencies": {
     "@xmtp/agent-sdk": "^1.1.14",
     "@anthropic-ai/claude-agent-sdk": "^0.1.0",
-    "@locus/mcp-client-credentials": "^1.0.0",
     "express": "^4.18.2",
     "dotenv": "^16.3.1",
     "cors": "^2.8.5"
