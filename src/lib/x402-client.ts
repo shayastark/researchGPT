@@ -6,6 +6,7 @@
 import { createWalletClient, http, parseUnits, type Address } from 'viem';
 import { base, baseSepolia } from 'viem/chains';
 import { privateKeyToAccount } from 'viem/accounts';
+import type { X402ServiceAccept } from './x402-bazaar-discovery.js';
 
 export interface X402PaymentInfo {
   accepts: Array<{
@@ -41,7 +42,7 @@ export class X402Client {
   }
 
   /**
-   * Call an x402 endpoint with automatic payment handling
+   * Call an x402 endpoint with automatic payment handling (using 402 response)
    */
   async callEndpoint(
     url: string,
@@ -195,6 +196,100 @@ export class X402Client {
     }
 
     throw new Error('Transaction confirmation timeout');
+  }
+
+  /**
+   * Call an x402 endpoint using Bazaar discovery payment info (pre-payment)
+   * This allows us to pay upfront using the discovered payment requirements
+   */
+  async callWithPaymentInfo(
+    url: string,
+    paymentInfo: X402ServiceAccept,
+    options: {
+      method: 'GET' | 'POST';
+      body?: any;
+      queryParams?: Record<string, string>;
+    }
+  ): Promise<any> {
+    const { method, body, queryParams } = options;
+
+    // Build final URL with query params
+    let finalUrl = url;
+    if (queryParams) {
+      const params = new URLSearchParams(queryParams);
+      finalUrl = `${url}${url.includes('?') ? '&' : '?'}${params.toString()}`;
+    }
+
+    console.log(`   💰 Paying upfront using Bazaar payment info:`);
+    console.log(`      Endpoint: ${finalUrl}`);
+    console.log(`      Amount: ${paymentInfo.maxAmountRequired} (${paymentInfo.extra?.name || 'USDC'})`);
+    console.log(`      Pay to: ${paymentInfo.payTo}`);
+
+    try {
+      // ERC20 transfer ABI
+      const transferAbi = [{
+        name: 'transfer',
+        type: 'function',
+        stateMutability: 'nonpayable',
+        inputs: [
+          { name: 'to', type: 'address' },
+          { name: 'amount', type: 'uint256' }
+        ],
+        outputs: [{ name: '', type: 'bool' }]
+      }] as const;
+
+      // Parse amount
+      const amount = BigInt(paymentInfo.maxAmountRequired);
+
+      // Send USDC transfer transaction
+      const hash = await this.walletClient.writeContract({
+        address: paymentInfo.asset as Address,
+        abi: transferAbi,
+        functionName: 'transfer',
+        args: [paymentInfo.payTo as Address, amount],
+      });
+
+      console.log(`   ✅ Payment transaction sent: ${hash}`);
+      console.log(`   ⏳ Waiting for confirmation...`);
+
+      // Wait for transaction confirmation
+      await this.waitForTransaction(hash);
+
+      console.log(`   ✅ Payment confirmed on-chain`);
+
+      // Make the actual API request
+      console.log(`   🔄 Making authenticated request`);
+      
+      const response = await fetch(finalUrl, {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'X-Payment-Hash': hash,
+        },
+        ...(method === 'POST' && body ? { body: JSON.stringify(body) } : {}),
+      });
+
+      if (!response.ok) {
+        let errorText = '';
+        try {
+          errorText = await response.text();
+        } catch (e) {
+          errorText = 'Unable to read error response';
+        }
+        throw new Error(`Request failed: ${response.status} ${response.statusText} - ${errorText}`);
+      }
+
+      // Return the data
+      const data = await response.json();
+      console.log(`   ✅ Data received successfully`);
+      
+      return data;
+
+    } catch (error) {
+      console.error(`   ❌ Payment or request failed:`, error);
+      throw new Error(`x402 call failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
   }
 
   /**
