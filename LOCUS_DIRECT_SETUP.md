@@ -39,8 +39,8 @@ ANTHROPIC_API_KEY=sk-ant-api03-...
 # Locus (this is the key!)
 LOCUS_API_KEY=locus_dev_6gql3MusieEpdTJMWgele-NFYTdQHLip
 
-# Optional: Locus API base URL (defaults to https://api.paywithlocus.com)
-# LOCUS_API_BASE=https://api.paywithlocus.com
+# Optional: Locus API base URL (defaults to https://mcp.paywithlocus.com)
+# LOCUS_API_BASE=https://mcp.paywithlocus.com
 ```
 
 ### 2. Deploy
@@ -109,7 +109,7 @@ curl https://your-app.railway.app/health
 
 1. **User sends message** via XMTP
 2. **Claude decides** which tool to use (based on approved endpoints)
-3. **Agent calls Locus API**: `POST /v1/x402/call`
+3. **Agent calls Locus API**: `POST /x402/call`
    - Locus handles 402 detection
    - Locus makes USDC payment from your wallet
    - Locus retries with payment proof
@@ -173,12 +173,12 @@ locus_dev_6gql3MusieEpdTJMWgele-NFYTdQHLip
 
 ### About Locus API
 
-The agent calls: `POST https://api.paywithlocus.com/v1/x402/call`
+The agent calls: `POST https://mcp.paywithlocus.com/x402/call`
 
 **If this endpoint is different**, set in Railway:
 ```bash
-LOCUS_API_BASE=https://mcp.paywithlocus.com
-# or whatever the actual Locus API URL is
+LOCUS_API_BASE=https://your-custom-locus-url.com
+# Change only if Locus provides a different URL
 ```
 
 ### About Your Locus Wallet
@@ -216,16 +216,11 @@ Check balance in Locus dashboard or on BaseScan.
 ✅ **Clear logs** - See every step  
 ✅ **Production ready** - Works in Railway  
 
-## If Locus API Endpoint is Different
+## Locus API Endpoint (Updated ✅)
 
-I'm using `https://api.paywithlocus.com/v1/x402/call` as the Locus API endpoint.
+The correct Locus MCP endpoint is: `https://mcp.paywithlocus.com/x402/call`
 
-**If this is wrong**, please tell me the correct endpoint and I'll update it!
-
-Possible alternatives:
-- `https://mcp.paywithlocus.com/x402/call`
-- `https://api.paywithlocus.com/mcp/call`
-- Check Locus documentation or support
+This is now the default in the code. No environment variable changes needed!
 
 ## Next Steps
 

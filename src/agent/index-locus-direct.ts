@@ -22,7 +22,7 @@ const RAILWAY_VOLUME = process.env.RAILWAY_VOLUME_MOUNT_PATH;
 const PORT = parseInt(process.env.PORT || '3000');
 
 // Locus API configuration
-const LOCUS_API_BASE = process.env.LOCUS_API_BASE || 'https://api.paywithlocus.com';
+const LOCUS_API_BASE = process.env.LOCUS_API_BASE || 'https://mcp.paywithlocus.com';
 
 // Map of tool names to x402 endpoints (from Locus dashboard)
 const X402_ENDPOINTS = {
@@ -411,9 +411,9 @@ class LocusDirectAgent {
     console.log(`      Method: POST (with Locus orchestration)`);
 
     try {
-      // Call Locus API to orchestrate x402 payment and request
+      // Call Locus MCP API to orchestrate x402 payment and request
       // Locus will handle: 402 detection, payment, retry with proof
-      const locusResponse = await fetch(`${LOCUS_API_BASE}/v1/x402/call`, {
+      const locusResponse = await fetch(`${LOCUS_API_BASE}/x402/call`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
