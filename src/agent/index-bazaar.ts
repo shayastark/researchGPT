@@ -506,9 +506,10 @@ class XMTPBazaarAgent {
         required.push('query');
       } else {
         // POST/PUT - use body data
+        // Note: We'll remap generic "data" field to appropriate parameter names in executeDiscoveredService
         properties.data = {
           type: 'string',
-          description: 'Data to send to the API',
+          description: 'Data to send to the API (for Twitter services, provide username with or without @ symbol)',
         };
         required.push('data');
       }
@@ -666,11 +667,41 @@ Remember: You are operating in November 2025. Any "recent" data should be from 2
     
     // Build query parameters from input
     let queryParams: Record<string, string> = {};
+    let requestBody: any = input;
+    
     if (method === 'GET') {
       // Pass all input fields as query parameters
       for (const [key, value] of Object.entries(input)) {
         if (value !== undefined && value !== null) {
           queryParams[key] = String(value);
+        }
+      }
+    } else {
+      // POST/PUT - improve body mapping
+      // Check if input has a generic "data" field that might need remapping
+      if (input.data && Object.keys(input).length === 1) {
+        // If we only have a "data" field, try to infer better parameter names
+        const dataValue = input.data;
+        const url = tool.service.resource.toLowerCase();
+        
+        // Try to infer parameter name from URL or service type
+        if (url.includes('twitter') || url.includes('username') || url.includes('user')) {
+          // For Twitter services, map "data" to "username" and remove @ symbol
+          let username = String(dataValue).trim();
+          if (username.startsWith('@')) {
+            username = username.substring(1);
+          }
+          requestBody = { username };
+          console.log(`   🔧 Remapping 'data' to 'username' and removing @ symbol`);
+        } else if (url.includes('email')) {
+          requestBody = { email: String(dataValue) };
+          console.log(`   🔧 Remapping 'data' to 'email'`);
+        } else if (url.includes('query') || url.includes('search')) {
+          requestBody = { query: String(dataValue) };
+          console.log(`   🔧 Remapping 'data' to 'query'`);
+        } else {
+          // Keep as-is but log it
+          console.log(`   ⚠️  Using generic 'data' field - API might expect different parameter name`);
         }
       }
     }
@@ -679,7 +710,7 @@ Remember: You are operating in November 2025. Any "recent" data should be from 2
       tool.service.resource,
       {
         method,
-        ...(method === 'POST' ? { body: input } : {}),
+        ...(method === 'POST' ? { body: requestBody } : {}),
         ...(method === 'GET' && Object.keys(queryParams).length > 0 ? { queryParams } : {}),
       }
     );
