@@ -122,27 +122,77 @@ export class X402OfficialClient {
           ? JSON.stringify(rawData).substring(0, 500) 
           : String(rawData).substring(0, 500),
       });
+      
+      // Log the FULL response for debugging (truncated if too long)
+      const fullResponseStr = JSON.stringify(rawData, null, 2);
+      if (fullResponseStr.length > 2000) {
+        console.log(`   📋 Full response (truncated):`, fullResponseStr.substring(0, 2000) + '...');
+      } else {
+        console.log(`   📋 Full response:`, fullResponseStr);
+      }
 
       // Extract actual data from common response structures
       // Many APIs wrap data in fields like 'data', 'result', 'content', 'items', etc.
       let extractedData: any = rawData;
       
       if (typeof rawData === 'object' && rawData !== null && !Array.isArray(rawData)) {
-        // Priority order for data extraction
-        const dataFields = ['data', 'result', 'content', 'items', 'results', 'response', 'body'];
         const rawDataObj = rawData as Record<string, any>;
         
-        for (const field of dataFields) {
-          if (rawDataObj[field] !== undefined && rawDataObj[field] !== null) {
-            console.log(`   🔍 Extracting data from '${field}' field`);
-            extractedData = rawDataObj[field];
-            break;
+        // Check if this looks like a payment confirmation response (has success, payer, USDC_tx, etc.)
+        const isPaymentConfirmation = rawDataObj.success !== undefined && 
+                                     (rawDataObj.payer !== undefined || rawDataObj.USDC_tx !== undefined);
+        
+        if (isPaymentConfirmation) {
+          console.log(`   ⚠️  Response appears to be payment confirmation only, checking for data fields...`);
+          
+          // Some APIs return payment info + data in the same response
+          // Priority order for data extraction
+          const dataFields = ['data', 'result', 'content', 'items', 'results', 'response', 'body', 'weather', 'forecast', 'info'];
+          
+          for (const field of dataFields) {
+            if (rawDataObj[field] !== undefined && rawDataObj[field] !== null) {
+              console.log(`   🔍 Found data in '${field}' field, extracting...`);
+              extractedData = rawDataObj[field];
+              break;
+            }
+          }
+          
+          // If we didn't find a data field, this might be a payment-only response
+          // Check if there are any other fields that might contain actual data
+          if (extractedData === rawData) {
+            const allKeys = Object.keys(rawDataObj);
+            const paymentKeys = ['success', 'payer', 'USDC_tx', 'network', 'timestamp', 'transaction', 'hash'];
+            const potentialDataKeys = allKeys.filter(key => !paymentKeys.includes(key.toLowerCase()));
+            
+            if (potentialDataKeys.length > 0) {
+              console.log(`   🔍 Found potential data fields: ${potentialDataKeys.join(', ')}`);
+              // Try to extract from the first non-payment field
+              extractedData = rawDataObj[potentialDataKeys[0]];
+              console.log(`   🔍 Extracting from '${potentialDataKeys[0]}' field`);
+            } else {
+              console.log(`   ⚠️  WARNING: Response contains only payment confirmation, no data fields found!`);
+              console.log(`   ⚠️  This API may not be returning the actual data. Response keys: ${allKeys.join(', ')}`);
+            }
+          }
+        } else {
+          // Normal response structure - look for common data fields
+          const dataFields = ['data', 'result', 'content', 'items', 'results', 'response', 'body'];
+          
+          for (const field of dataFields) {
+            if (rawDataObj[field] !== undefined && rawDataObj[field] !== null) {
+              console.log(`   🔍 Extracting data from '${field}' field`);
+              extractedData = rawDataObj[field];
+              break;
+            }
           }
         }
         
         // If we found data in a nested field, log what we're extracting vs what we're ignoring
         if (extractedData !== rawData) {
-          const ignoredKeys = Object.keys(rawDataObj).filter(key => !dataFields.includes(key));
+          const ignoredKeys = Object.keys(rawDataObj).filter(key => {
+            const dataFields = ['data', 'result', 'content', 'items', 'results', 'response', 'body', 'weather', 'forecast', 'info'];
+            return !dataFields.includes(key);
+          });
           if (ignoredKeys.length > 0) {
             console.log(`   ℹ️  Ignoring metadata fields: ${ignoredKeys.join(', ')}`);
           }
