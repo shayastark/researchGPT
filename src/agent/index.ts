@@ -383,13 +383,30 @@ Note: You are currently in fallback mode without access to real-time data source
       console.log(`   Model: ${message.model}`);
       console.log(`   Permission mode: ${message.permissionMode}`);
       console.log(`   Available tools: ${message.tools.join(', ')}`);
-      console.log(`   MCP servers: ${message.mcp_servers.map(s => `${s.name} (${s.status})`).join(', ')}`);
+      
+      // Check MCP server connection status (per Claude SDK docs)
+      const connectedServers = message.mcp_servers.filter(s => s.status === 'connected');
+      const failedServers = message.mcp_servers.filter(s => s.status !== 'connected');
+      
+      if (connectedServers.length > 0) {
+        console.log(`   ✅ MCP servers connected: ${connectedServers.map(s => s.name).join(', ')}`);
+      }
+      if (failedServers.length > 0) {
+        console.warn(`   ⚠️  MCP servers failed: ${failedServers.map(s => `${s.name} (${s.status})`).join(', ')}`);
+      }
+      
+      // Log available MCP tools
+      const mcpTools = message.tools.filter(t => t.startsWith('mcp__'));
+      if (mcpTools.length > 0) {
+        console.log(`   🔧 MCP tools available: ${mcpTools.length}`);
+      }
     } else if (message.type === 'user') {
       console.log(`   📤 User message sent`);
     } else if (message.type === 'assistant') {
       const toolUses = message.message.content.filter(b => b.type === 'tool_use');
       if (toolUses.length > 0) {
-        console.log(`   🔧 Claude is using ${toolUses.length} tool(s)`);
+        const toolNames = toolUses.map((b: any) => b.name).join(', ');
+        console.log(`   🔧 Claude using tool(s): ${toolNames}`);
       }
       const textBlocks = message.message.content.filter(b => b.type === 'text');
       if (textBlocks.length > 0) {
