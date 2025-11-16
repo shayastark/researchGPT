@@ -77,7 +77,7 @@ export class X402Client {
       console.log(`   💳 Payment required (402 response)`);
       
       // Get payment info from response
-      const paymentInfo: X402PaymentInfo = await response.json();
+      const paymentInfo = await response.json() as X402PaymentInfo;
       console.log(`   📋 Payment details:`, JSON.stringify(paymentInfo, null, 2));
 
       if (!paymentInfo.accepts || paymentInfo.accepts.length === 0) {
