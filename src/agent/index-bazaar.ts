@@ -1,6 +1,6 @@
 import { Agent, filter, validHex } from '@xmtp/agent-sdk';
 import { createUser, createSigner } from '@xmtp/agent-sdk/user';
-import Anthropic from '@anthropic-ai/sdk';
+import OpenAI from 'openai';
 import express from 'express';
 import dotenv from 'dotenv';
 import { X402Client } from '../lib/x402-client.js';
@@ -14,7 +14,7 @@ const XMTP_ENV = (process.env.XMTP_ENV || 'dev') as 'local' | 'dev' | 'productio
 const XMTP_DB_ENCRYPTION_KEY = process.env.XMTP_DB_ENCRYPTION_KEY;
 
 // Environment variables - AI & Payments
-const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
 
 // Environment variables - x402 Payments
 const PAYMENT_PRIVATE_KEY = process.env.PAYMENT_PRIVATE_KEY || process.env.PRIVATE_KEY || '';
@@ -41,7 +41,7 @@ class XMTPBazaarAgent {
   private agent!: Agent;
   private httpServer: express.Application;
   private serverStartTime: Date;
-  private anthropic: Anthropic;
+  private openai: OpenAI;
   private x402Client: X402Client | null = null;
   private bazaarClient: X402BazaarClient;
   private discoveredTools: Map<string, DiscoveredTool> = new Map();
@@ -51,12 +51,12 @@ class XMTPBazaarAgent {
     if (!XMTP_WALLET_KEY) {
       throw new Error('XMTP_WALLET_KEY environment variable is required');
     }
-    if (!ANTHROPIC_API_KEY) {
-      throw new Error('ANTHROPIC_API_KEY environment variable is required');
+    if (!OPENAI_API_KEY) {
+      throw new Error('OPENAI_API_KEY environment variable is required');
     }
 
     this.serverStartTime = new Date();
-    this.anthropic = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
+    this.openai = new OpenAI({ apiKey: OPENAI_API_KEY });
     this.bazaarClient = new X402BazaarClient();
 
     // Initialize x402 client if payment key is available
@@ -82,7 +82,7 @@ class XMTPBazaarAgent {
 
     console.log(`\n🤖 XMTP x402 Bazaar Agent Configuration:`);
     console.log(`   XMTP Network: ${XMTP_ENV}`);
-    console.log(`   AI: Claude Sonnet 4 (Direct API)`);
+    console.log(`   AI: OpenAI GPT-4o`);
     console.log(`   Discovery: CDP x402 Bazaar`);
     console.log(`   Max Service Price: $${MAX_SERVICE_PRICE_USDC} USDC`);
     console.log(`   Payment Wallet: ${this.x402Client?.getAddress() || 'NOT CONFIGURED'}`);
@@ -104,7 +104,7 @@ class XMTPBazaarAgent {
         service: 'xmtp-x402-bazaar-agent',
         uptime: Math.floor((Date.now() - this.serverStartTime.getTime()) / 1000),
         xmtpNetwork: XMTP_ENV,
-        ai: 'claude-sonnet-4',
+        ai: 'gpt-4o',
         discovery: 'cdp-x402-bazaar',
         paymentWallet: this.x402Client?.getAddress() || 'not configured',
         x402Configured: !!this.x402Client,
@@ -132,7 +132,7 @@ class XMTPBazaarAgent {
           xmtpNetwork: XMTP_ENV,
           agentAddress: this.agent?.address || 'not initialized',
           inboxId: this.agent?.client?.inboxId || 'not initialized',
-          ai: 'Claude Sonnet 4',
+          ai: 'OpenAI GPT-4o',
           discovery: 'CDP x402 Bazaar',
           paymentSystem: 'x402 Protocol (Direct)',
           paymentWallet: this.x402Client?.getAddress() || 'NOT CONFIGURED',
@@ -347,7 +347,7 @@ class XMTPBazaarAgent {
       console.log(`\n📬 Agent Address: ${this.agent.address}`);
       console.log(`📊 InboxId: ${this.agent.client.inboxId}`);
       console.log(`🌐 Environment: ${XMTP_ENV}`);
-      console.log(`🤖 AI: Claude Sonnet 4`);
+      console.log(`🤖 AI: OpenAI GPT-4o`);
       console.log(`🔍 Discovery: CDP x402 Bazaar`);
       console.log(`💰 Max Service Price: $${MAX_SERVICE_PRICE_USDC} USDC`);
       console.log(`💳 Payment Wallet: ${this.x402Client?.getAddress() || 'NOT CONFIGURED'}`);
@@ -395,35 +395,38 @@ class XMTPBazaarAgent {
     console.log(`   Query: "${userQuery}"`);
     console.log(`   Available services: ${this.discoveredTools.size}`);
 
-    // Build tools for Claude from discovered services
-    const tools: Anthropic.Tool[] = Array.from(this.discoveredTools.values()).map(tool => {
+    // Build tools for OpenAI from discovered services
+    const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = Array.from(this.discoveredTools.values()).map(tool => {
       const inputSchema = tool.paymentInfo.outputSchema?.input;
       
       return {
-        name: tool.name,
-        description: tool.description,
-        input_schema: {
-          type: 'object',
-          properties: {
-            // Try to infer parameters from the input schema
-            ...(inputSchema?.method === 'GET' ? {
-              query: {
-                type: 'string',
-                description: 'Query parameter for the API request',
-              }
-            } : {
-              data: {
-                type: 'string',
-                description: 'Data to send to the API',
-              }
-            }),
+        type: 'function',
+        function: {
+          name: tool.name,
+          description: tool.description,
+          parameters: {
+            type: 'object',
+            properties: {
+              // Try to infer parameters from the input schema
+              ...(inputSchema?.method === 'GET' ? {
+                query: {
+                  type: 'string',
+                  description: 'Query parameter for the API request',
+                }
+              } : {
+                data: {
+                  type: 'string',
+                  description: 'Data to send to the API',
+                }
+              }),
+            },
+            required: inputSchema?.method === 'GET' ? ['query'] : ['data'],
           },
-          required: inputSchema?.method === 'GET' ? ['query'] : ['data'],
         },
       };
     });
 
-    let messages: Anthropic.MessageParam[] = [
+    let messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
       {
         role: 'user',
         content: userQuery,
@@ -437,81 +440,66 @@ class XMTPBazaarAgent {
       iteration++;
       console.log(`\n🔄 Iteration ${iteration}:`);
 
-      // Call Claude
-      const response = await this.anthropic.messages.create({
-        model: 'claude-sonnet-4-20250514',
+      // Call OpenAI
+      const response = await this.openai.chat.completions.create({
+        model: 'gpt-4o',
         max_tokens: 4096,
         tools,
         messages,
       });
 
-      console.log(`   Stop reason: ${response.stop_reason}`);
+      const choice = response.choices[0];
+      console.log(`   Finish reason: ${choice.finish_reason}`);
 
-      // If Claude is done, return the response
-      if (response.stop_reason === 'end_turn') {
-        let finalText = '';
-        for (const block of response.content) {
-          if (block.type === 'text') {
-            finalText += block.text;
-          }
-        }
+      // If OpenAI is done, return the response
+      if (choice.finish_reason === 'stop') {
+        const finalText = choice.message.content || '';
         console.log(`\n✅ Request completed in ${iteration} iteration(s)`);
         return finalText || 'Request completed, but no response generated.';
       }
 
       // Handle tool calls
-      if (response.stop_reason === 'tool_use') {
-        const toolResults: Anthropic.ToolResultBlockParam[] = [];
+      if (choice.finish_reason === 'tool_calls' && choice.message.tool_calls) {
+        const assistantMessage = choice.message;
+        messages.push(assistantMessage);
 
-        for (const block of response.content) {
-          if (block.type === 'tool_use') {
-            console.log(`\n   🔧 Tool: ${block.name}`);
-            console.log(`      Input: ${JSON.stringify(block.input)}`);
+        for (const toolCall of choice.message.tool_calls) {
+          console.log(`\n   🔧 Tool: ${toolCall.function.name}`);
+          console.log(`      Input: ${toolCall.function.arguments}`);
 
-            try {
-              // Execute the discovered service
-              const result = await this.executeDiscoveredService(
-                block.name,
-                block.input as Record<string, any>
-              );
+          try {
+            const args = JSON.parse(toolCall.function.arguments);
+            
+            // Execute the discovered service
+            const result = await this.executeDiscoveredService(
+              toolCall.function.name,
+              args
+            );
 
-              console.log(`      ✅ Success`);
-              
-              toolResults.push({
-                type: 'tool_result',
-                tool_use_id: block.id,
-                content: typeof result === 'string' ? result : JSON.stringify(result),
-              });
-            } catch (error) {
-              console.error(`      ❌ Failed: ${error instanceof Error ? error.message : error}`);
-              
-              toolResults.push({
-                type: 'tool_result',
-                tool_use_id: block.id,
-                content: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
-                is_error: true,
-              });
-            }
+            console.log(`      ✅ Success`);
+            
+            messages.push({
+              role: 'tool',
+              tool_call_id: toolCall.id,
+              content: typeof result === 'string' ? result : JSON.stringify(result),
+            });
+          } catch (error) {
+            console.error(`      ❌ Failed: ${error instanceof Error ? error.message : error}`);
+            
+            messages.push({
+              role: 'tool',
+              tool_call_id: toolCall.id,
+              content: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+            });
           }
         }
-
-        // Add assistant message and tool results to conversation
-        messages.push({
-          role: 'assistant',
-          content: response.content,
-        });
-
-        messages.push({
-          role: 'user',
-          content: toolResults,
-        });
 
         // Continue to next iteration
         continue;
       }
 
-      // Unexpected stop reason
-      console.warn(`   ⚠️  Unexpected stop reason: ${response.stop_reason}`);
+      // Unexpected finish reason
+      console.warn(`   ⚠️  Unexpected finish reason: ${choice.finish_reason}`);
       break;
     }
 
