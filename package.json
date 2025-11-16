@@ -8,6 +8,8 @@
     "build": "tsc",
     "start": "node dist/src/agent/index.js",
     "dev": "node --loader ts-node/esm --no-warnings=ExperimentalWarning src/agent/index.ts",
+    "demo": "node --loader ts-node/esm --no-warnings=ExperimentalWarning src/agent/index-x402-demo.ts",
+    "demo:build": "npm run build && node dist/src/agent/index-x402-demo.js",
     "service:market": "node --loader ts-node/esm --no-warnings=ExperimentalWarning src/services/market-data.ts",
     "service:sentiment": "node --loader ts-node/esm --no-warnings=ExperimentalWarning src/services/sentiment.ts",
     "service:onchain": "node --loader ts-node/esm --no-warnings=ExperimentalWarning src/services/onchain.ts",
