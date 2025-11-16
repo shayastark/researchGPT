@@ -161,8 +161,25 @@ export class X402OfficialClient {
           // Check if there are any other fields that might contain actual data
           if (extractedData === rawData) {
             const allKeys = Object.keys(rawDataObj);
-            const paymentKeys = ['success', 'payer', 'USDC_tx', 'network', 'timestamp', 'transaction', 'hash'];
-            const potentialDataKeys = allKeys.filter(key => !paymentKeys.includes(key.toLowerCase()));
+            // Comprehensive list of payment-related fields to exclude
+            const paymentKeys = [
+              'success', 'payer', 'USDC_tx', 'network', 'timestamp', 'transaction', 'hash',
+              'tx', 'tx_hash', 'txhash', 'payment', 'payment_hash', 'payment_tx',
+              'transaction_hash', 'txn', 'txid', 'nonce', 'amount', 'receiver',
+              'payto', 'pay_to', 'asset', 'currency', 'token', 'usdc'
+            ];
+            const potentialDataKeys = allKeys.filter(key => {
+              const keyLower = key.toLowerCase();
+              // Exclude payment keys (case-insensitive)
+              if (paymentKeys.some(pk => keyLower === pk.toLowerCase() || keyLower.includes(pk.toLowerCase()))) {
+                return false;
+              }
+              // Exclude fields that are clearly payment-related
+              if (keyLower.includes('tx') || keyLower.includes('hash') || keyLower.includes('payment')) {
+                return false;
+              }
+              return true;
+            });
             
             if (potentialDataKeys.length > 0) {
               console.log(`   🔍 Found potential data fields: ${potentialDataKeys.join(', ')}`);
@@ -172,6 +189,18 @@ export class X402OfficialClient {
             } else {
               console.log(`   ⚠️  WARNING: Response contains only payment confirmation, no data fields found!`);
               console.log(`   ⚠️  This API may not be returning the actual data. Response keys: ${allKeys.join(', ')}`);
+              console.log(`   ⚠️  The API appears to be broken or not implemented correctly.`);
+              
+              // Return a structured error response instead of payment confirmation
+              extractedData = {
+                error: true,
+                message: 'API returned only payment confirmation, no actual data',
+                payment_confirmed: true,
+                transaction: rawDataObj.USDC_tx || rawDataObj.transaction || rawDataObj.hash,
+                api_endpoint: finalUrl,
+                response_keys: allKeys,
+                note: 'This service may not be returning data correctly. Payment was successful but no data was provided.'
+              };
             }
           }
         } else {
