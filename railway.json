@@ -5,7 +5,7 @@
     "buildCommand": "npm install && npm run build"
   },
   "deploy": {
-    "startCommand": "node dist/src/agent/index-x402-demo.js",
+    "startCommand": "node dist/src/agent/index-bazaar.js",
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 10
   },
