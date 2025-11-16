@@ -224,8 +224,11 @@ class XMTPBazaarAgent {
 
   /**
    * Generate a tool name from a URL
+   * OpenAI requires function names to be max 64 characters
    */
   private generateToolName(url: string): string {
+    const MAX_LENGTH = 64;
+    
     try {
       const urlObj = new URL(url);
       const domain = urlObj.hostname.replace(/^www\./, '').split('.')[0];
@@ -241,10 +244,32 @@ class XMTPBazaarAgent {
       name = name.replace(/_+/g, '_');
       name = name.replace(/^_|_$/g, '');
       
+      // Enforce OpenAI's 64-character limit
+      if (name.length > MAX_LENGTH) {
+        // Keep domain and hash the rest to stay under limit
+        const hash = Math.abs(this.hashString(url)).toString(36).substring(0, 8);
+        const maxDomainLength = MAX_LENGTH - hash.length - 1; // -1 for underscore
+        const truncatedDomain = domain.substring(0, maxDomainLength);
+        name = `${truncatedDomain}_${hash}`;
+      }
+      
       return name || 'service';
     } catch {
       return 'service_' + Math.random().toString(36).substring(7);
     }
+  }
+
+  /**
+   * Simple string hash function for generating consistent short identifiers
+   */
+  private hashString(str: string): number {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      const char = str.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // Convert to 32-bit integer
+    }
+    return hash;
   }
 
   async initialize() {
