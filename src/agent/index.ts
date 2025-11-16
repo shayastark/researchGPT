@@ -88,7 +88,7 @@ class XMTPResearchAgent {
           xmtpNetwork: XMTP_ENV,
           agentAddress: this.agent?.address || 'not initialized',
           inboxId: this.agent?.client?.inboxId || 'not initialized',
-          ai: 'Claude 3.5 Sonnet',
+          ai: 'Claude Sonnet 4.5',
           paymentSystem: 'Locus MCP',
           multiFacilitator: true,
           volumePath: RAILWAY_VOLUME || 'not configured',
@@ -223,7 +223,7 @@ class XMTPResearchAgent {
       console.log(`\n📬 Agent Address: ${this.agent.address}`);
       console.log(`📊 InboxId: ${this.agent.client.inboxId}`);
       console.log(`🌐 Environment: ${XMTP_ENV}`);
-      console.log(`🤖 AI: Claude 3.5 Sonnet`);
+      console.log(`🤖 AI: Claude Sonnet 4.5`);
       console.log(`💰 Payments: Locus MCP (multi-facilitator)`);
       
       if (XMTP_ENV === 'production') {
@@ -255,7 +255,7 @@ class XMTPResearchAgent {
 
       // Make direct API call to Claude
       const response = await anthropic.messages.create({
-        model: 'claude-3-5-sonnet-20240620',
+        model: 'claude-sonnet-4-5-20250929',
         max_tokens: 4096,
         messages: [{
           role: 'user',
