@@ -16,8 +16,8 @@ const XMTP_DB_ENCRYPTION_KEY = process.env.XMTP_DB_ENCRYPTION_KEY;
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
 const LOCUS_API_KEY = process.env.LOCUS_API_KEY || '';
 const PRIVATE_KEY = process.env.PRIVATE_KEY || process.env.XMTP_WALLET_KEY || '';
-const BASE_RPC_URL = process.env.BASE_RPC_URL || 'https://sepolia.base.org';
-const USE_MAINNET = process.env.USE_MAINNET === 'true';
+const BASE_RPC_URL = process.env.BASE_RPC_URL || 'https://mainnet.base.org';
+const USE_MAINNET = process.env.USE_MAINNET !== 'false'; // Defaults to true (mainnet)
 
 // Railway volume path for persistent database
 const RAILWAY_VOLUME = process.env.RAILWAY_VOLUME_MOUNT_PATH;
