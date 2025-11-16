@@ -1,10 +1,9 @@
 import { Agent, filter, validHex } from '@xmtp/agent-sdk';
 import { createUser, createSigner } from '@xmtp/agent-sdk/user';
-import { query } from '@anthropic-ai/claude-agent-sdk';
-import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import Anthropic from '@anthropic-ai/sdk';
 import express from 'express';
 import dotenv from 'dotenv';
+import { X402Client } from '../lib/x402-client.js';
 
 dotenv.config();
 
@@ -15,7 +14,11 @@ const XMTP_DB_ENCRYPTION_KEY = process.env.XMTP_DB_ENCRYPTION_KEY;
 
 // Environment variables - AI & Payments
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
-const LOCUS_API_KEY = process.env.LOCUS_API_KEY || '';
+
+// Environment variables - x402 Payments
+const PAYMENT_PRIVATE_KEY = process.env.PAYMENT_PRIVATE_KEY || process.env.PRIVATE_KEY || '';
+const BASE_RPC_URL = process.env.BASE_RPC_URL || 'https://mainnet.base.org';
+const USE_MAINNET = process.env.USE_MAINNET === 'true';
 
 // Railway volume path for persistent database
 const RAILWAY_VOLUME = process.env.RAILWAY_VOLUME_MOUNT_PATH;
@@ -23,13 +26,46 @@ const RAILWAY_VOLUME = process.env.RAILWAY_VOLUME_MOUNT_PATH;
 // HTTP server port (for Railway health checks)
 const PORT = parseInt(process.env.PORT || '3000');
 
-// Locus MCP server configuration
-const LOCUS_MCP_SERVER_URL = process.env.LOCUS_MCP_SERVER_URL || 'https://mcp.paywithlocus.com/mcp';
+// x402 endpoints configuration
+const X402_ENDPOINTS = {
+  ai_research: {
+    url: 'https://www.capminal.ai/api/x402/research',
+    method: 'POST' as const,
+    description: 'Comprehensive AI and tech research using premium data sources',
+  },
+  weather_forecast: {
+    url: 'https://sbx-x402.sapa-ai.com/weather',
+    method: 'GET' as const,
+    description: 'Get detailed weather forecasts for any location',
+  },
+  llm_research: {
+    url: 'https://x402.ottoai.services/llm-research',
+    method: 'POST' as const,
+    description: 'Advanced LLM-powered research and analysis',
+  },
+  job_search: {
+    url: 'https://otaku.so/api/messaging/jobs',
+    method: 'POST' as const,
+    description: 'Search for job listings and career opportunities',
+  },
+  crypto_gems: {
+    url: 'https://api.canza.app/token/gems-list',
+    method: 'GET' as const,
+    description: 'Discover promising cryptocurrency tokens and gems',
+  },
+  technical_analysis: {
+    url: 'https://api.ethyai.app/x402/ta',
+    method: 'GET' as const,
+    description: 'Technical analysis for cryptocurrency trading',
+  },
+};
 
 class XMTPResearchAgent {
   private agent!: Agent;
   private httpServer: express.Application;
   private serverStartTime: Date;
+  private anthropic: Anthropic;
+  private x402Client: X402Client | null = null;
 
   constructor() {
     // Validate required environment variables
@@ -39,29 +75,43 @@ class XMTPResearchAgent {
     if (!ANTHROPIC_API_KEY) {
       throw new Error('ANTHROPIC_API_KEY environment variable is required');
     }
-    if (!LOCUS_API_KEY) {
-      throw new Error('LOCUS_API_KEY environment variable is required for Locus MCP integration');
-    }
 
     this.serverStartTime = new Date();
+    this.anthropic = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
+
+    // Initialize x402 client if payment key is available
+    if (PAYMENT_PRIVATE_KEY) {
+      console.log('🔧 Initializing x402 payment client...');
+      this.x402Client = new X402Client({
+        privateKey: PAYMENT_PRIVATE_KEY as `0x${string}`,
+        rpcUrl: BASE_RPC_URL,
+        useMainnet: USE_MAINNET,
+      });
+      console.log(`✅ x402 client initialized`);
+      console.log(`   Payment wallet: ${this.x402Client.getAddress()}`);
+      console.log(`   Network: ${USE_MAINNET ? 'Base Mainnet' : 'Base Sepolia'}`);
+    } else {
+      console.warn('⚠️  No PAYMENT_PRIVATE_KEY found - x402 payments will fail!');
+      console.warn('   Set PAYMENT_PRIVATE_KEY or PRIVATE_KEY to enable payments');
+    }
 
     // Initialize HTTP server for health checks
     this.httpServer = express();
     this.httpServer.use(express.json());
     this.setupHttpEndpoints();
 
-    console.log(`🤖 XMTP Research Agent Configuration:`);
+    console.log(`\n🤖 XMTP x402 Agent Configuration:`);
     console.log(`   XMTP Network: ${XMTP_ENV}`);
-    console.log(`   AI: Claude Agent SDK (with MCP)`);
-    console.log(`   Payments: Locus MCP`);
-    console.log(`   MCP Server: ${LOCUS_MCP_SERVER_URL}`);
+    console.log(`   AI: Claude Sonnet 4 (Direct API)`);
+    console.log(`   Payments: x402 Protocol (Direct)`);
+    console.log(`   Payment Wallet: ${this.x402Client?.getAddress() || 'NOT CONFIGURED'}`);
     console.log(`   HTTP Port: ${PORT}`);
     
     // Warning if on dev network
     if (XMTP_ENV === 'dev') {
       console.log('\n⚠️  WARNING: Agent is on DEV network');
       console.log('   Users on xmtp.chat will NOT be able to message you!');
-      console.log('   To fix: Set XMTP_ENV=production and run npm run initialize-production');
+      console.log('   To fix: Set XMTP_ENV=production');
     }
   }
 
@@ -70,12 +120,13 @@ class XMTPResearchAgent {
     this.httpServer.get('/health', (req, res) => {
       res.json({
         status: 'healthy',
-        service: 'xmtp-research-agent',
+        service: 'xmtp-x402-agent',
         uptime: Math.floor((Date.now() - this.serverStartTime.getTime()) / 1000),
         xmtpNetwork: XMTP_ENV,
-        ai: 'claude-agent-sdk',
-        payments: 'locus-mcp',
-        mcpServer: LOCUS_MCP_SERVER_URL,
+        ai: 'claude-sonnet-4',
+        payments: 'x402-direct',
+        paymentWallet: this.x402Client?.getAddress() || 'not configured',
+        x402Configured: !!this.x402Client,
         address: this.agent?.address || 'not initialized',
         timestamp: new Date().toISOString(),
       });
@@ -84,26 +135,25 @@ class XMTPResearchAgent {
     // Status endpoint with detailed information
     this.httpServer.get('/status', (req, res) => {
       res.json({
-        service: 'XMTP Research Agent',
-        version: '3.0.0',
+        service: 'XMTP x402 Agent',
+        version: '5.0.0-direct',
         status: 'running',
         uptime: Math.floor((Date.now() - this.serverStartTime.getTime()) / 1000),
         configuration: {
           xmtpNetwork: XMTP_ENV,
           agentAddress: this.agent?.address || 'not initialized',
           inboxId: this.agent?.client?.inboxId || 'not initialized',
-          ai: 'Claude Agent SDK',
-          paymentSystem: 'Locus MCP',
-          mcpServer: LOCUS_MCP_SERVER_URL,
+          ai: 'Claude Sonnet 4',
+          paymentSystem: 'x402 Protocol (Direct)',
+          paymentWallet: this.x402Client?.getAddress() || 'NOT CONFIGURED',
+          paymentNetwork: USE_MAINNET ? 'Base Mainnet' : 'Base Sepolia',
           volumePath: RAILWAY_VOLUME || 'not configured',
         },
         capabilities: {
-          mcpToolDiscovery: true,
-          autonomousPayments: true,
-          policyEnforcement: true,
-          x402Protocol: true,
+          x402Payments: !!this.x402Client,
+          availableTools: Object.keys(X402_ENDPOINTS),
         },
-        ready: !!this.agent,
+        ready: !!this.agent && !!this.x402Client,
         timestamp: new Date().toISOString(),
       });
     });
@@ -111,11 +161,12 @@ class XMTPResearchAgent {
     // Root endpoint
     this.httpServer.get('/', (req, res) => {
       res.json({
-        service: 'XMTP Research Agent',
-        message: 'AI research agent with Claude Agent SDK + Locus MCP. X402 payments handled automatically.',
+        service: 'XMTP x402 Agent',
+        message: 'AI research agent with x402 payment protocol. Payments made directly on Base blockchain.',
         agentAddress: this.agent?.address || 'initializing...',
         xmtpNetwork: XMTP_ENV,
-        integration: 'Claude Agent SDK with Locus MCP',
+        paymentWallet: this.x402Client?.getAddress() || 'NOT CONFIGURED',
+        x402Configured: !!this.x402Client,
         endpoints: {
           health: '/health',
           status: '/status',
@@ -165,7 +216,7 @@ class XMTPResearchAgent {
 
     await this.initialize();
 
-    console.log('\n🤖 XMTP Research Agent starting...');
+    console.log('\n🤖 XMTP x402 Agent starting...');
 
     // Listen for text messages
     this.agent.on('text', async (ctx) => {
@@ -186,16 +237,19 @@ class XMTPResearchAgent {
       }
       const messageContent = ctx.message.content;
 
-      console.log(`\n📨 Received message from ${senderAddress}`);
-      console.log(`   Query: "${messageContent}"\n`);
+      console.log(`\n${'='.repeat(80)}`);
+      console.log(`📨 Received message from ${senderAddress}`);
+      console.log(`   Query: "${messageContent}"`);
+      console.log('='.repeat(80));
 
       try {
-        // Process the research request with Claude Agent SDK + Locus MCP
+        // Process the research request with x402 payments
         const response = await this.handleResearchRequest(messageContent);
 
         // Send response back via XMTP
         await ctx.sendText(response);
-        console.log(`✅ Response sent to ${senderAddress}\n`);
+        console.log(`\n✅ Response sent to ${senderAddress}`);
+        console.log('='.repeat(80));
       } catch (error) {
         console.error('❌ Error handling message:', error);
         const errorMessage = `❌ Error processing your request: ${
@@ -205,16 +259,6 @@ class XMTPResearchAgent {
       }
     });
 
-    // Listen for group messages
-    this.agent.on('group', async (ctx) => {
-      console.log('👥 New group conversation created');
-    });
-
-    // Listen for DMs
-    this.agent.on('dm', async (ctx) => {
-      console.log('💬 New DM conversation created');
-    });
-
     // Handle errors
     this.agent.on('unhandledError', (error) => {
       console.error('❌ Unhandled agent error:', error);
@@ -222,29 +266,40 @@ class XMTPResearchAgent {
 
     // Start event
     this.agent.on('start', () => {
-      console.log('\n' + '═'.repeat(60));
-      console.log('✅ XMTP Research Agent is now online!');
-      console.log('═'.repeat(60));
+      console.log('\n' + '═'.repeat(80));
+      console.log('✅ XMTP x402 AGENT IS NOW ONLINE!');
+      console.log('═'.repeat(80));
       console.log(`\n📬 Agent Address: ${this.agent.address}`);
       console.log(`📊 InboxId: ${this.agent.client.inboxId}`);
       console.log(`🌐 Environment: ${XMTP_ENV}`);
-      console.log(`🤖 AI: Claude Agent SDK`);
-      console.log(`💰 Payments: Locus MCP (x402 protocol)`);
-      console.log(`🔌 MCP Server: ${LOCUS_MCP_SERVER_URL}`);
+      console.log(`🤖 AI: Claude Sonnet 4`);
+      console.log(`💰 Payments: x402 Protocol (Direct on-chain)`);
+      console.log(`💳 Payment Wallet: ${this.x402Client?.getAddress() || 'NOT CONFIGURED'}`);
+      console.log(`⛓️  Network: ${USE_MAINNET ? 'Base Mainnet' : 'Base Sepolia'}`);
+      
+      if (!this.x402Client) {
+        console.log('\n⚠️  WARNING: No payment wallet configured!');
+        console.log('   x402 payments will fail. Set PAYMENT_PRIVATE_KEY to enable.');
+      }
       
       if (XMTP_ENV === 'production') {
-        console.log('✅ Users can message you on xmtp.chat!');
+        console.log('\n✅ Users can message you on xmtp.chat!');
       } else if (XMTP_ENV === 'dev') {
-        console.log('⚠️  DEV mode: Users on xmtp.chat CANNOT message you');
+        console.log('\n⚠️  DEV mode: Users on xmtp.chat CANNOT message you');
         console.log('   Use a dev client or switch to production');
       }
       
-      console.log(`\n💡 Send a message to access premium data via Locus MCP!\n`);
-      console.log('Example queries:');
+      console.log(`\n💡 This agent demonstrates x402 payment protocol!\n`);
+      console.log('🎯 Available Tools:');
+      Object.entries(X402_ENDPOINTS).forEach(([name, config]) => {
+        console.log(`   - ${name}: ${config.description}`);
+      });
+      console.log('\n📝 Example queries:');
+      console.log('  - "Research the latest trends in AI agents"');
       console.log('  - "What\'s the weather in San Francisco?"');
-      console.log('  - "Research the latest AI trends"');
-      console.log('  - "What are some promising crypto gems?"');
+      console.log('  - "Find me some promising crypto gems"');
       console.log('  - "Technical analysis for Bitcoin"\n');
+      console.log('='.repeat(80));
     });
 
     // Start the agent
@@ -252,167 +307,155 @@ class XMTPResearchAgent {
   }
 
   private async handleResearchRequest(userQuery: string): Promise<string> {
-    console.log(`🔍 Processing research request with Claude Agent SDK + Locus MCP`);
+    if (!this.x402Client) {
+      return '❌ x402 payment client not configured. Please set PAYMENT_PRIVATE_KEY environment variable to enable payments.';
+    }
+
+    console.log(`\n🔍 Processing with x402 Payment Protocol`);
     console.log(`   Query: "${userQuery}"`);
 
-    // Try Claude Agent SDK with MCP first, fall back to direct API if subprocess fails
-    try {
-      return await this.handleWithAgentSDK(userQuery);
-    } catch (error) {
-      console.error('❌ Claude Agent SDK failed, falling back to direct API');
-      console.error('   Error:', error instanceof Error ? error.message : error);
-      return await this.handleWithDirectAPI(userQuery);
-    }
-  }
-
-  private async handleWithAgentSDK(userQuery: string): Promise<string> {
-    // Ensure we have a writable directory for the subprocess
-    const workingDir = RAILWAY_VOLUME || process.cwd();
-    
-    console.log(`   Attempting Claude Agent SDK with MCP...`);
-    console.log(`   Working directory: ${workingDir}`);
-    
-    // Use Claude Agent SDK with Locus MCP server
-    const result = query({
-      prompt: userQuery,
-      options: {
-        // Configure Locus as MCP server
-        mcpServers: {
-          'locus': {
-            type: 'http',
-            url: LOCUS_MCP_SERVER_URL,
-            headers: {
-              'Authorization': `Bearer ${LOCUS_API_KEY}`,
-            },
+    // Define tools for Claude
+    const tools: Anthropic.Tool[] = Object.entries(X402_ENDPOINTS).map(([name, config]) => ({
+      name,
+      description: `${config.description} (x402 payment required - USDC on Base)`,
+      input_schema: {
+        type: 'object',
+        properties: {
+          query: {
+            type: 'string',
+            description: name === 'weather_forecast' 
+              ? 'The location to get weather for' 
+              : 'The research query or search term',
           },
         },
-        // Permission settings - bypass for autonomous operation
-        permissionMode: 'bypassPermissions',
-        // Use writable directory (Railway volume if available)
-        cwd: workingDir,
-        // Don't include partial messages (we just want final results)
-        includePartialMessages: false,
+        required: ['query'],
       },
-    });
+    }));
 
-    let finalResponse = '';
-    let toolCalls = 0;
+    let messages: Anthropic.MessageParam[] = [
+      {
+        role: 'user',
+        content: userQuery,
+      },
+    ];
 
-    // Stream messages from Claude
-    for await (const message of result) {
-      this.logMessage(message);
+    let iteration = 0;
+    const maxIterations = 5;
 
-      if (message.type === 'assistant') {
-        // Extract text from assistant message
-        for (const block of message.message.content) {
+    while (iteration < maxIterations) {
+      iteration++;
+      console.log(`\n🔄 Iteration ${iteration}:`);
+
+      // Call Claude
+      const response = await this.anthropic.messages.create({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 4096,
+        tools,
+        messages,
+      });
+
+      console.log(`   Stop reason: ${response.stop_reason}`);
+
+      // If Claude is done, return the response
+      if (response.stop_reason === 'end_turn') {
+        let finalText = '';
+        for (const block of response.content) {
           if (block.type === 'text') {
-            finalResponse += block.text;
-          } else if (block.type === 'tool_use') {
-            toolCalls++;
-            console.log(`   🔧 Tool call: ${block.name}`);
+            finalText += block.text;
           }
         }
-      } else if (message.type === 'result') {
-        // Final result message
-        if (message.subtype === 'success') {
-          console.log(`\n✅ Research completed with Agent SDK`);
-          console.log(`   Tool calls: ${toolCalls}`);
-          console.log(`   Turns: ${message.num_turns}`);
-          console.log(`   Cost: $${message.total_cost_usd.toFixed(4)}`);
-          
-          // Use the result if final response is empty
-          if (!finalResponse && message.result) {
-            finalResponse = message.result;
-          }
-        } else {
-          console.error(`   ❌ Research failed: ${message.subtype}`);
-        }
+        console.log(`\n✅ Research completed in ${iteration} iteration(s)`);
+        return finalText || 'Research completed, but no response generated.';
       }
-    }
 
-    if (!finalResponse) {
-      throw new Error('No response generated from Agent SDK');
-    }
+      // Handle tool calls
+      if (response.stop_reason === 'tool_use') {
+        const toolResults: Anthropic.ToolResultBlockParam[] = [];
 
-    return finalResponse;
-  }
+        for (const block of response.content) {
+          if (block.type === 'tool_use') {
+            console.log(`\n   🔧 Tool: ${block.name}`);
+            console.log(`      Input: ${JSON.stringify(block.input)}`);
 
-  private async handleWithDirectAPI(userQuery: string): Promise<string> {
-    console.log(`\n🔄 Using direct Anthropic API (fallback mode)`);
-    
-    const anthropic = new Anthropic({
-      apiKey: ANTHROPIC_API_KEY,
-    });
+            try {
+              // Execute the x402 tool call
+              const result = await this.executeX402Tool(
+                block.name,
+                block.input as { query: string }
+              );
 
-    const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 4096,
-      system: `You are an intelligent research assistant. Provide comprehensive, accurate, and helpful responses to user queries. 
+              console.log(`      ✅ Success`);
+              
+              toolResults.push({
+                type: 'tool_result',
+                tool_use_id: block.id,
+                content: typeof result === 'string' ? result : JSON.stringify(result),
+              });
+            } catch (error) {
+              console.error(`      ❌ Failed: ${error instanceof Error ? error.message : error}`);
+              
+              toolResults.push({
+                type: 'tool_result',
+                tool_use_id: block.id,
+                content: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+                is_error: true,
+              });
+            }
+          }
+        }
 
-Note: You are currently in fallback mode without access to real-time data sources. Use your knowledge base to provide the best answer possible. When appropriate, acknowledge any limitations.`,
-      messages: [
-        {
+        // Add assistant message and tool results to conversation
+        messages.push({
+          role: 'assistant',
+          content: response.content,
+        });
+
+        messages.push({
           role: 'user',
-          content: userQuery,
-        },
-      ],
-    });
+          content: toolResults,
+        });
 
-    let finalResponse = '';
-    for (const block of response.content) {
-      if (block.type === 'text') {
-        finalResponse += block.text;
+        // Continue to next iteration
+        continue;
       }
+
+      // Unexpected stop reason
+      console.warn(`   ⚠️  Unexpected stop reason: ${response.stop_reason}`);
+      break;
     }
 
-    console.log(`✅ Response generated with direct API`);
-    console.log(`   Model: ${response.model}`);
-    console.log(`   Input tokens: ${response.usage.input_tokens}`);
-    console.log(`   Output tokens: ${response.usage.output_tokens}`);
-
-    return finalResponse || 'I processed your request but could not generate a response. Please try again.';
+    return 'Research completed after maximum iterations.';
   }
 
-
-  /**
-   * Log SDK messages for debugging
-   */
-  private logMessage(message: SDKMessage) {
-    if (message.type === 'system' && message.subtype === 'init') {
-      console.log(`\n🎯 Claude Agent SDK initialized`);
-      console.log(`   Model: ${message.model}`);
-      console.log(`   Permission mode: ${message.permissionMode}`);
-      console.log(`   Available tools: ${message.tools.join(', ')}`);
-      
-      // Check MCP server connection status (per Claude SDK docs)
-      const connectedServers = message.mcp_servers.filter(s => s.status === 'connected');
-      const failedServers = message.mcp_servers.filter(s => s.status !== 'connected');
-      
-      if (connectedServers.length > 0) {
-        console.log(`   ✅ MCP servers connected: ${connectedServers.map(s => s.name).join(', ')}`);
-      }
-      if (failedServers.length > 0) {
-        console.warn(`   ⚠️  MCP servers failed: ${failedServers.map(s => `${s.name} (${s.status})`).join(', ')}`);
-      }
-      
-      // Log available MCP tools
-      const mcpTools = message.tools.filter(t => t.startsWith('mcp__'));
-      if (mcpTools.length > 0) {
-        console.log(`   🔧 MCP tools available: ${mcpTools.length}`);
-      }
-    } else if (message.type === 'user') {
-      console.log(`   📤 User message sent`);
-    } else if (message.type === 'assistant') {
-      const toolUses = message.message.content.filter(b => b.type === 'tool_use');
-      if (toolUses.length > 0) {
-        const toolNames = toolUses.map((b: any) => b.name).join(', ');
-        console.log(`   🔧 Claude using tool(s): ${toolNames}`);
-      }
-      const textBlocks = message.message.content.filter(b => b.type === 'text');
-      if (textBlocks.length > 0) {
-        console.log(`   💭 Claude is thinking/responding...`);
-      }
+  private async executeX402Tool(
+    toolName: string,
+    input: { query: string }
+  ): Promise<any> {
+    const endpoint = X402_ENDPOINTS[toolName as keyof typeof X402_ENDPOINTS];
+    
+    if (!endpoint) {
+      throw new Error(`Unknown tool: ${toolName}`);
     }
+
+    if (!this.x402Client) {
+      throw new Error('x402 payment client not configured');
+    }
+
+    console.log(`\n   💰 Executing x402 payment call:`);
+    console.log(`      Endpoint: ${endpoint.url}`);
+    console.log(`      Method: ${endpoint.method}`);
+    console.log(`      Query: ${input.query}`);
+
+    // Call x402 endpoint with automatic payment handling
+    const result = await this.x402Client.callEndpoint(endpoint.url, {
+      method: endpoint.method,
+      ...(endpoint.method === 'POST' ? { body: { query: input.query } } : {}),
+      ...(endpoint.method === 'GET' ? { queryParams: { query: input.query } } : {}),
+    });
+
+    console.log(`      ✅ Data received via x402 protocol`);
+    
+    return result;
   }
 }
 
