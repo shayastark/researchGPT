@@ -18,6 +18,12 @@ export interface X402ServiceAccept {
     input: {
       method: string;
       type: string;
+      discoverable?: boolean;
+      queryParams?: Record<string, {
+        description?: string;
+        required?: boolean;
+        type?: string;
+      }>;
     };
     output: any;
   };

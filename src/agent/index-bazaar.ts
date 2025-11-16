@@ -471,6 +471,40 @@ class XMTPBazaarAgent {
     // Build tools for OpenAI from discovered services
     const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = Array.from(this.discoveredTools.values()).map(tool => {
       const inputSchema = tool.paymentInfo.outputSchema?.input;
+      const queryParams = inputSchema?.queryParams || {};
+      const method = inputSchema?.method || 'GET';
+      
+      // Build properties from queryParams schema
+      const properties: Record<string, any> = {};
+      const required: string[] = [];
+      
+      if (method === 'GET' && Object.keys(queryParams).length > 0) {
+        // Use actual query parameters from schema
+        for (const [paramName, paramSchema] of Object.entries(queryParams)) {
+          const schema = paramSchema as any;
+          properties[paramName] = {
+            type: schema.type || 'string',
+            description: schema.description || `${paramName} parameter`,
+          };
+          if (schema.required) {
+            required.push(paramName);
+          }
+        }
+      } else if (method === 'GET') {
+        // Fallback to generic query parameter
+        properties.query = {
+          type: 'string',
+          description: 'Query parameter for the API request',
+        };
+        required.push('query');
+      } else {
+        // POST/PUT - use body data
+        properties.data = {
+          type: 'string',
+          description: 'Data to send to the API',
+        };
+        required.push('data');
+      }
       
       return {
         type: 'function',
@@ -479,21 +513,8 @@ class XMTPBazaarAgent {
           description: tool.description,
           parameters: {
             type: 'object',
-            properties: {
-              // Try to infer parameters from the input schema
-              ...(inputSchema?.method === 'GET' ? {
-                query: {
-                  type: 'string',
-                  description: 'Query parameter for the API request',
-                }
-              } : {
-                data: {
-                  type: 'string',
-                  description: 'Data to send to the API',
-                }
-              }),
-            },
-            required: inputSchema?.method === 'GET' ? ['query'] : ['data'],
+            properties,
+            required,
           },
         },
       };
@@ -607,12 +628,24 @@ class XMTPBazaarAgent {
     // 2. Creates and submits payment
     // 3. Waits for confirmation
     // 4. Retries with X-PAYMENT header
+    
+    // Build query parameters from input
+    let queryParams: Record<string, string> = {};
+    if (method === 'GET') {
+      // Pass all input fields as query parameters
+      for (const [key, value] of Object.entries(input)) {
+        if (value !== undefined && value !== null) {
+          queryParams[key] = String(value);
+        }
+      }
+    }
+    
     const result = await this.x402OfficialClient.callEndpoint(
       tool.service.resource,
       {
         method,
         ...(method === 'POST' ? { body: input } : {}),
-        ...(method === 'GET' && input.query ? { queryParams: { query: input.query } } : {}),
+        ...(method === 'GET' && Object.keys(queryParams).length > 0 ? { queryParams } : {}),
       }
     );
 
