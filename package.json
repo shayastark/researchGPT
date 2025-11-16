@@ -10,6 +10,8 @@
     "dev": "node --loader ts-node/esm --no-warnings=ExperimentalWarning src/agent/index.ts",
     "demo": "node --loader ts-node/esm --no-warnings=ExperimentalWarning src/agent/index-x402-demo.ts",
     "demo:build": "npm run build && node dist/src/agent/index-x402-demo.js",
+    "locus": "node --loader ts-node/esm --no-warnings=ExperimentalWarning src/agent/index-locus-direct.ts",
+    "locus:build": "npm run build && node dist/src/agent/index-locus-direct.js",
     "service:market": "node --loader ts-node/esm --no-warnings=ExperimentalWarning src/services/market-data.ts",
     "service:sentiment": "node --loader ts-node/esm --no-warnings=ExperimentalWarning src/services/sentiment.ts",
     "service:onchain": "node --loader ts-node/esm --no-warnings=ExperimentalWarning src/services/onchain.ts",
