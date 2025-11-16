@@ -34,13 +34,15 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "@coinbase/x402": "^0.7.1",
     "@xmtp/agent-sdk": "^1.1.14",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
     "openai": "^4.72.0",
     "viem": "^2.21.0",
-    "x402-express": "^0.1.0"
+    "x402-express": "^0.1.0",
+    "x402-fetch": "^0.7.0"
   },
   "devDependencies": {
     "@types/cors": "^2.8.15",
