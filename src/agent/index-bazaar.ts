@@ -4,6 +4,7 @@ import OpenAI from 'openai';
 import express from 'express';
 import dotenv from 'dotenv';
 import { X402Client } from '../lib/x402-client.js';
+import { X402OfficialClient } from '../lib/x402-official-client.js';
 import { X402BazaarClient, type X402Service, type X402ServiceAccept } from '../lib/x402-bazaar-discovery.js';
 
 dotenv.config();
@@ -43,6 +44,7 @@ class XMTPBazaarAgent {
   private serverStartTime: Date;
   private openai: OpenAI;
   private x402Client: X402Client | null = null;
+  private x402OfficialClient: X402OfficialClient | null = null;
   private bazaarClient: X402BazaarClient;
   private discoveredTools: Map<string, DiscoveredTool> = new Map();
 
@@ -59,16 +61,26 @@ class XMTPBazaarAgent {
     this.openai = new OpenAI({ apiKey: OPENAI_API_KEY });
     this.bazaarClient = new X402BazaarClient();
 
-    // Initialize x402 client if payment key is available
+    // Initialize x402 clients if payment key is available
     if (PAYMENT_PRIVATE_KEY) {
-      console.log('🔧 Initializing x402 payment client...');
+      console.log('🔧 Initializing x402 payment clients...');
+      
+      // Keep old client for compatibility
       this.x402Client = new X402Client({
         privateKey: PAYMENT_PRIVATE_KEY as `0x${string}`,
         rpcUrl: BASE_RPC_URL,
         useMainnet: USE_MAINNET,
       });
-      console.log(`✅ x402 client initialized`);
-      console.log(`   Payment wallet: ${this.x402Client.getAddress()}`);
+      
+      // New official client (uses x402-fetch package)
+      this.x402OfficialClient = new X402OfficialClient({
+        privateKey: PAYMENT_PRIVATE_KEY as `0x${string}`,
+        rpcUrl: BASE_RPC_URL,
+        useMainnet: USE_MAINNET,
+      });
+      
+      console.log(`✅ x402 clients initialized (using official x402-fetch package)`);
+      console.log(`   Payment wallet: ${this.x402OfficialClient.getAddress()}`);
       console.log(`   Network: ${USE_MAINNET ? 'Base Mainnet' : 'Base Sepolia'}`);
       
       // Check wallet balances at startup (async, don't block initialization)
@@ -109,8 +121,8 @@ class XMTPBazaarAgent {
         xmtpNetwork: XMTP_ENV,
         ai: 'gpt-4o',
         discovery: 'cdp-x402-bazaar',
-        paymentWallet: this.x402Client?.getAddress() || 'not configured',
-        x402Configured: !!this.x402Client,
+        paymentWallet: this.x402OfficialClient?.getAddress() || 'not configured',
+        x402Configured: !!this.x402OfficialClient,
         discoveredServices: this.discoveredTools.size,
         address: this.agent?.address || 'not initialized',
         timestamp: new Date().toISOString(),
@@ -138,17 +150,17 @@ class XMTPBazaarAgent {
           ai: 'OpenAI GPT-4o',
           discovery: 'CDP x402 Bazaar',
           paymentSystem: 'x402 Protocol (Direct)',
-          paymentWallet: this.x402Client?.getAddress() || 'NOT CONFIGURED',
+          paymentWallet: this.x402OfficialClient?.getAddress() || 'NOT CONFIGURED',
           paymentNetwork: USE_MAINNET ? 'Base Mainnet' : 'Base Sepolia',
           maxServicePrice: `$${MAX_SERVICE_PRICE_USDC} USDC`,
           volumePath: RAILWAY_VOLUME || 'not configured',
         },
         capabilities: {
-          x402Payments: !!this.x402Client,
+          x402Payments: !!this.x402OfficialClient,
           discoveredServices: this.discoveredTools.size,
           availableTools: tools,
         },
-        ready: !!this.agent && !!this.x402Client,
+        ready: !!this.agent && !!this.x402OfficialClient,
         timestamp: new Date().toISOString(),
       });
     });
@@ -160,8 +172,8 @@ class XMTPBazaarAgent {
         message: 'AI agent with CDP x402 Bazaar discovery. Dynamically discovers and pays for services.',
         agentAddress: this.agent?.address || 'initializing...',
         xmtpNetwork: XMTP_ENV,
-        paymentWallet: this.x402Client?.getAddress() || 'NOT CONFIGURED',
-        x402Configured: !!this.x402Client,
+        paymentWallet: this.x402OfficialClient?.getAddress() || 'NOT CONFIGURED',
+        x402Configured: !!this.x402OfficialClient,
         discoveredServices: this.discoveredTools.size,
         endpoints: {
           health: '/health',
@@ -175,7 +187,7 @@ class XMTPBazaarAgent {
    * Check wallet balances at startup (non-blocking)
    */
   private async checkWalletBalancesAsync(): Promise<void> {
-    if (!this.x402Client) return;
+    if (!this.x402OfficialClient) return;
     
     try {
       console.log('\n💰 Checking payment wallet balances...');
@@ -186,7 +198,7 @@ class XMTPBazaarAgent {
       
       // Check balances for a minimal amount (0.01 USDC)
       const minAmount = BigInt(10000); // 0.01 USDC in atomic units
-      const balances = await this.x402Client.checkBalances(usdcAddress as `0x${string}`, minAmount);
+      const balances = await this.x402OfficialClient.checkBalances(usdcAddress as `0x${string}`, minAmount);
       
       if (balances.hasEnoughEth && balances.hasEnoughToken) {
         console.log('✅ Wallet is funded and ready for payments');
@@ -194,8 +206,8 @@ class XMTPBazaarAgent {
         console.log('\n⚠️  WARNING: Wallet needs funding!');
         console.log(balances.errorMessage);
         console.log('\n💡 Fund your wallet to enable x402 payments:');
-        console.log(`   1. Send ETH (for gas) to: ${this.x402Client.getAddress()}`);
-        console.log(`   2. Send USDC (for payments) to: ${this.x402Client.getAddress()}`);
+        console.log(`   1. Send ETH (for gas) to: ${this.x402OfficialClient.getAddress()}`);
+        console.log(`   2. Send USDC (for payments) to: ${this.x402OfficialClient.getAddress()}`);
         console.log(`   Network: ${USE_MAINNET ? 'Base Mainnet' : 'Base Sepolia'}`);
       }
     } catch (error) {
@@ -410,10 +422,11 @@ class XMTPBazaarAgent {
       console.log(`🤖 AI: OpenAI GPT-4o`);
       console.log(`🔍 Discovery: CDP x402 Bazaar`);
       console.log(`💰 Max Service Price: $${MAX_SERVICE_PRICE_USDC} USDC`);
-      console.log(`💳 Payment Wallet: ${this.x402Client?.getAddress() || 'NOT CONFIGURED'}`);
+      console.log(`💳 Payment Wallet: ${this.x402OfficialClient?.getAddress() || 'NOT CONFIGURED'}`);
       console.log(`⛓️  Network: ${USE_MAINNET ? 'Base Mainnet' : 'Base Sepolia'}`);
+      console.log(`🔧 x402 Method: Official x402-fetch package (proper 402 handling)`);
       
-      if (!this.x402Client) {
+      if (!this.x402OfficialClient) {
         console.log('\n⚠️  WARNING: No payment wallet configured!');
         console.log('   x402 payments will fail. Set PAYMENT_PRIVATE_KEY to enable.');
       }
@@ -443,7 +456,7 @@ class XMTPBazaarAgent {
   }
 
   private async handleRequest(userQuery: string): Promise<string> {
-    if (!this.x402Client) {
+    if (!this.x402OfficialClient) {
       return '❌ x402 payment client not configured. Please set PAYMENT_PRIVATE_KEY environment variable to enable payments.';
     }
 
@@ -576,7 +589,7 @@ class XMTPBazaarAgent {
       throw new Error(`Unknown tool: ${toolName}`);
     }
 
-    if (!this.x402Client) {
+    if (!this.x402OfficialClient) {
       throw new Error('x402 payment client not configured');
     }
 
@@ -586,12 +599,16 @@ class XMTPBazaarAgent {
     console.log(`\n   💰 Executing discovered service via x402:`);
     console.log(`      Service: ${tool.service.resource}`);
     console.log(`      Method: ${method}`);
-    console.log(`      Price: ${this.bazaarClient.formatPrice(tool.paymentInfo.maxAmountRequired, 6)} USDC`);
+    console.log(`      Expected price: ~${this.bazaarClient.formatPrice(tool.paymentInfo.maxAmountRequired, 6)} USDC`);
+    console.log(`      Using official x402-fetch (automatic 402 handling)`);
 
-    // Call using Bazaar payment info
-    const result = await this.x402Client.callWithPaymentInfo(
+    // Call using official x402-fetch - it handles the entire flow:
+    // 1. Makes request → gets 402 with payment requirements
+    // 2. Creates and submits payment
+    // 3. Waits for confirmation
+    // 4. Retries with X-PAYMENT header
+    const result = await this.x402OfficialClient.callEndpoint(
       tool.service.resource,
-      tool.paymentInfo,
       {
         method,
         ...(method === 'POST' ? { body: input } : {}),
@@ -599,7 +616,7 @@ class XMTPBazaarAgent {
       }
     );
 
-    console.log(`      ✅ Data received via x402 Bazaar discovery`);
+    console.log(`      ✅ Data received via official x402 protocol`);
     
     return result;
   }
