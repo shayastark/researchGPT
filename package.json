@@ -34,12 +34,11 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.1.0",
-    "@anthropic-ai/sdk": "^0.69.0",
     "@xmtp/agent-sdk": "^1.1.14",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
+    "openai": "^4.72.0",
     "viem": "^2.21.0",
     "x402-express": "^0.1.0"
   },

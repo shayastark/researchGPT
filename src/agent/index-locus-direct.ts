@@ -1,6 +1,6 @@
 import { Agent, filter, validHex } from '@xmtp/agent-sdk';
 import { createUser, createSigner } from '@xmtp/agent-sdk/user';
-import Anthropic from '@anthropic-ai/sdk';
+import OpenAI from 'openai';
 import express from 'express';
 import dotenv from 'dotenv';
 
@@ -12,7 +12,7 @@ const XMTP_ENV = (process.env.XMTP_ENV || 'dev') as 'local' | 'dev' | 'productio
 const XMTP_DB_ENCRYPTION_KEY = process.env.XMTP_DB_ENCRYPTION_KEY;
 
 // Environment variables - AI & Payments
-const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
 const LOCUS_API_KEY = process.env.LOCUS_API_KEY || '';
 
 // Railway volume path for persistent database
@@ -56,22 +56,22 @@ class LocusDirectAgent {
   private agent!: Agent;
   private httpServer: express.Application;
   private serverStartTime: Date;
-  private anthropic: Anthropic;
+  private openai: OpenAI;
 
   constructor() {
     // Validate required environment variables
     if (!XMTP_WALLET_KEY) {
       throw new Error('XMTP_WALLET_KEY environment variable is required');
     }
-    if (!ANTHROPIC_API_KEY) {
-      throw new Error('ANTHROPIC_API_KEY environment variable is required');
+    if (!OPENAI_API_KEY) {
+      throw new Error('OPENAI_API_KEY environment variable is required');
     }
     if (!LOCUS_API_KEY) {
       throw new Error('LOCUS_API_KEY environment variable is required for x402 payments via Locus');
     }
 
     this.serverStartTime = new Date();
-    this.anthropic = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
+    this.openai = new OpenAI({ apiKey: OPENAI_API_KEY });
 
     // Initialize HTTP server for health checks
     this.httpServer = express();
@@ -80,7 +80,7 @@ class LocusDirectAgent {
 
     console.log(`\n🤖 Locus x402 Agent Configuration:`);
     console.log(`   XMTP Network: ${XMTP_ENV}`);
-    console.log(`   AI: Claude Sonnet 4 (Direct API)`);
+    console.log(`   AI: OpenAI GPT-4o`);
     console.log(`   Payments: Locus (Direct HTTP API)`);
     console.log(`   Locus API: ${LOCUS_API_BASE}`);
     console.log(`   Locus API Key: ${LOCUS_API_KEY.substring(0, 20)}...`);
@@ -102,7 +102,7 @@ class LocusDirectAgent {
         service: 'locus-x402-agent',
         uptime: Math.floor((Date.now() - this.serverStartTime.getTime()) / 1000),
         xmtpNetwork: XMTP_ENV,
-        ai: 'claude-sonnet-4',
+        ai: 'gpt-4o',
         payments: 'locus-direct-api',
         locusConfigured: !!LOCUS_API_KEY,
         address: this.agent?.address || 'not initialized',
@@ -121,7 +121,7 @@ class LocusDirectAgent {
           xmtpNetwork: XMTP_ENV,
           agentAddress: this.agent?.address || 'not initialized',
           inboxId: this.agent?.client?.inboxId || 'not initialized',
-          ai: 'Claude Sonnet 4',
+          ai: 'OpenAI GPT-4o',
           paymentSystem: 'Locus Direct API',
           locusApiBase: LOCUS_API_BASE,
           locusConfigured: !!LOCUS_API_KEY,
@@ -251,7 +251,7 @@ class LocusDirectAgent {
       console.log(`\n📬 Agent Address: ${this.agent.address}`);
       console.log(`📊 InboxId: ${this.agent.client.inboxId}`);
       console.log(`🌐 Environment: ${XMTP_ENV}`);
-      console.log(`🤖 AI: Claude Sonnet 4`);
+      console.log(`🤖 AI: OpenAI GPT-4o`);
       console.log(`💰 Payments: Locus (Direct API)`);
       console.log(`🔑 Locus API Key: ${LOCUS_API_KEY.substring(0, 20)}...`);
       
@@ -284,23 +284,26 @@ class LocusDirectAgent {
     console.log(`\n🔍 Processing with Locus x402 Payment Orchestration`);
     console.log(`   Query: "${userQuery}"`);
 
-    // Define tools for Claude
-    const tools: Anthropic.Tool[] = Object.entries(X402_ENDPOINTS).map(([name, config]) => ({
-      name,
-      description: `${config.description} (x402 payment via Locus)`,
-      input_schema: {
-        type: 'object',
-        properties: {
-          query: {
-            type: 'string',
-            description: 'The research query, location, or search term',
+    // Define tools for OpenAI
+    const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = Object.entries(X402_ENDPOINTS).map(([name, config]) => ({
+      type: 'function',
+      function: {
+        name,
+        description: `${config.description} (x402 payment via Locus)`,
+        parameters: {
+          type: 'object',
+          properties: {
+            query: {
+              type: 'string',
+              description: 'The research query, location, or search term',
+            },
           },
+          required: ['query'],
         },
-        required: ['query'],
       },
     }));
 
-    let messages: Anthropic.MessageParam[] = [
+    let messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
       {
         role: 'user',
         content: userQuery,
@@ -314,81 +317,66 @@ class LocusDirectAgent {
       iteration++;
       console.log(`\n🔄 Iteration ${iteration}:`);
 
-      // Call Claude
-      const response = await this.anthropic.messages.create({
-        model: 'claude-sonnet-4-20250514',
+      // Call OpenAI
+      const response = await this.openai.chat.completions.create({
+        model: 'gpt-4o',
         max_tokens: 4096,
         tools,
         messages,
       });
 
-      console.log(`   Stop reason: ${response.stop_reason}`);
+      const choice = response.choices[0];
+      console.log(`   Finish reason: ${choice.finish_reason}`);
 
-      // If Claude is done, return the response
-      if (response.stop_reason === 'end_turn') {
-        let finalText = '';
-        for (const block of response.content) {
-          if (block.type === 'text') {
-            finalText += block.text;
-          }
-        }
+      // If OpenAI is done, return the response
+      if (choice.finish_reason === 'stop') {
+        const finalText = choice.message.content || '';
         console.log(`\n✅ Research completed in ${iteration} iteration(s)`);
         return finalText || 'Research completed, but no response generated.';
       }
 
       // Handle tool calls
-      if (response.stop_reason === 'tool_use') {
-        const toolResults: Anthropic.ToolResultBlockParam[] = [];
+      if (choice.finish_reason === 'tool_calls' && choice.message.tool_calls) {
+        const assistantMessage = choice.message;
+        messages.push(assistantMessage);
 
-        for (const block of response.content) {
-          if (block.type === 'tool_use') {
-            console.log(`\n   🔧 Tool: ${block.name}`);
-            console.log(`      Input: ${JSON.stringify(block.input)}`);
+        for (const toolCall of choice.message.tool_calls) {
+          console.log(`\n   🔧 Tool: ${toolCall.function.name}`);
+          console.log(`      Input: ${toolCall.function.arguments}`);
 
-            try {
-              // Execute via Locus
-              const result = await this.callX402ViaLocus(
-                block.name,
-                block.input as { query: string }
-              );
+          try {
+            const args = JSON.parse(toolCall.function.arguments);
+            
+            // Execute via Locus
+            const result = await this.callX402ViaLocus(
+              toolCall.function.name,
+              args
+            );
 
-              console.log(`      ✅ Success`);
-              
-              toolResults.push({
-                type: 'tool_result',
-                tool_use_id: block.id,
-                content: typeof result === 'string' ? result : JSON.stringify(result),
-              });
-            } catch (error) {
-              console.error(`      ❌ Failed: ${error instanceof Error ? error.message : error}`);
-              
-              toolResults.push({
-                type: 'tool_result',
-                tool_use_id: block.id,
-                content: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
-                is_error: true,
-              });
-            }
+            console.log(`      ✅ Success`);
+            
+            messages.push({
+              role: 'tool',
+              tool_call_id: toolCall.id,
+              content: typeof result === 'string' ? result : JSON.stringify(result),
+            });
+          } catch (error) {
+            console.error(`      ❌ Failed: ${error instanceof Error ? error.message : error}`);
+            
+            messages.push({
+              role: 'tool',
+              tool_call_id: toolCall.id,
+              content: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+            });
           }
         }
-
-        // Add assistant message and tool results to conversation
-        messages.push({
-          role: 'assistant',
-          content: response.content,
-        });
-
-        messages.push({
-          role: 'user',
-          content: toolResults,
-        });
 
         // Continue to next iteration
         continue;
       }
 
-      // Unexpected stop reason
-      console.warn(`   ⚠️  Unexpected stop reason: ${response.stop_reason}`);
+      // Unexpected finish reason
+      console.warn(`   ⚠️  Unexpected finish reason: ${choice.finish_reason}`);
       break;
     }
 
