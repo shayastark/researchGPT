@@ -1,6 +1,7 @@
 import { Agent, filter, validHex } from '@xmtp/agent-sdk';
 import { createUser, createSigner } from '@xmtp/agent-sdk/user';
-import Anthropic from '@anthropic-ai/sdk';
+import { query } from '@anthropic-ai/claude-agent-sdk';
+import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import express from 'express';
 import dotenv from 'dotenv';
 
@@ -22,7 +23,7 @@ const RAILWAY_VOLUME = process.env.RAILWAY_VOLUME_MOUNT_PATH;
 const PORT = parseInt(process.env.PORT || '3000');
 
 // Locus MCP server configuration
-const LOCUS_MCP_SERVER_URL = process.env.LOCUS_MCP_SERVER_URL || 'https://mcp.paywithlocus.com';
+const LOCUS_MCP_SERVER_URL = process.env.LOCUS_MCP_SERVER_URL || 'https://mcp.paywithlocus.com/mcp';
 
 class XMTPResearchAgent {
   private agent!: Agent;
@@ -38,7 +39,7 @@ class XMTPResearchAgent {
       throw new Error('ANTHROPIC_API_KEY environment variable is required');
     }
     if (!LOCUS_API_KEY) {
-      throw new Error('LOCUS_API_KEY environment variable is required');
+      throw new Error('LOCUS_API_KEY environment variable is required for Locus MCP integration');
     }
 
     this.serverStartTime = new Date();
@@ -50,8 +51,9 @@ class XMTPResearchAgent {
 
     console.log(`🤖 XMTP Research Agent Configuration:`);
     console.log(`   XMTP Network: ${XMTP_ENV}`);
-    console.log(`   AI: Claude (Anthropic)`);
-    console.log(`   Payments: Locus x402 (6 premium data sources)`);
+    console.log(`   AI: Claude Agent SDK (with MCP)`);
+    console.log(`   Payments: Locus MCP`);
+    console.log(`   MCP Server: ${LOCUS_MCP_SERVER_URL}`);
     console.log(`   HTTP Port: ${PORT}`);
     
     // Warning if on dev network
@@ -70,8 +72,9 @@ class XMTPResearchAgent {
         service: 'xmtp-research-agent',
         uptime: Math.floor((Date.now() - this.serverStartTime.getTime()) / 1000),
         xmtpNetwork: XMTP_ENV,
-        ai: 'claude-sonnet',
+        ai: 'claude-agent-sdk',
         payments: 'locus-mcp',
+        mcpServer: LOCUS_MCP_SERVER_URL,
         address: this.agent?.address || 'not initialized',
         timestamp: new Date().toISOString(),
       });
@@ -81,27 +84,23 @@ class XMTPResearchAgent {
     this.httpServer.get('/status', (req, res) => {
       res.json({
         service: 'XMTP Research Agent',
-        version: '2.0.0',
+        version: '3.0.0',
         status: 'running',
         uptime: Math.floor((Date.now() - this.serverStartTime.getTime()) / 1000),
         configuration: {
           xmtpNetwork: XMTP_ENV,
           agentAddress: this.agent?.address || 'not initialized',
           inboxId: this.agent?.client?.inboxId || 'not initialized',
-          ai: 'Claude Sonnet 4.5',
-          paymentSystem: 'Locus x402',
-          approvedEndpoints: 6,
+          ai: 'Claude Agent SDK',
+          paymentSystem: 'Locus MCP',
+          mcpServer: LOCUS_MCP_SERVER_URL,
           volumePath: RAILWAY_VOLUME || 'not configured',
         },
         capabilities: {
-          aiResearch: 'Capminal AI',
-          weather: 'SAPA AI',
-          llmResearch: 'Otto AI',
-          jobSearch: 'Otaku',
-          cryptoGems: 'Canza',
-          technicalAnalysis: 'EthyAI',
+          mcpToolDiscovery: true,
           autonomousPayments: true,
           policyEnforcement: true,
+          x402Protocol: true,
         },
         ready: !!this.agent,
         timestamp: new Date().toISOString(),
@@ -112,10 +111,10 @@ class XMTPResearchAgent {
     this.httpServer.get('/', (req, res) => {
       res.json({
         service: 'XMTP Research Agent',
-        message: 'AI research agent with access to 6 premium data sources via Locus x402. Send XMTP messages to interact.',
+        message: 'AI research agent with Claude Agent SDK + Locus MCP. X402 payments handled automatically.',
         agentAddress: this.agent?.address || 'initializing...',
         xmtpNetwork: XMTP_ENV,
-        dataSources: ['Capminal AI', 'SAPA Weather', 'Otto AI', 'Otaku Jobs', 'Canza Gems', 'EthyAI TA'],
+        integration: 'Claude Agent SDK with Locus MCP',
         endpoints: {
           health: '/health',
           status: '/status',
@@ -190,7 +189,7 @@ class XMTPResearchAgent {
       console.log(`   Query: "${messageContent}"\n`);
 
       try {
-        // Process the research request with Claude + Locus MCP
+        // Process the research request with Claude Agent SDK + Locus MCP
         const response = await this.handleResearchRequest(messageContent);
 
         // Send response back via XMTP
@@ -228,8 +227,9 @@ class XMTPResearchAgent {
       console.log(`\n📬 Agent Address: ${this.agent.address}`);
       console.log(`📊 InboxId: ${this.agent.client.inboxId}`);
       console.log(`🌐 Environment: ${XMTP_ENV}`);
-      console.log(`🤖 AI: Claude Sonnet 4.5`);
-      console.log(`💰 Payments: Locus x402 (6 approved sources)`);
+      console.log(`🤖 AI: Claude Agent SDK`);
+      console.log(`💰 Payments: Locus MCP (x402 protocol)`);
+      console.log(`🔌 MCP Server: ${LOCUS_MCP_SERVER_URL}`);
       
       if (XMTP_ENV === 'production') {
         console.log('✅ Users can message you on xmtp.chat!');
@@ -238,11 +238,10 @@ class XMTPResearchAgent {
         console.log('   Use a dev client or switch to production');
       }
       
-      console.log(`\n💡 Send a message to access premium data sources!\n`);
+      console.log(`\n💡 Send a message to access premium data via Locus MCP!\n`);
       console.log('Example queries:');
       console.log('  - "What\'s the weather in San Francisco?"');
       console.log('  - "Research the latest AI trends"');
-      console.log('  - "Find me software engineering jobs"');
       console.log('  - "What are some promising crypto gems?"');
       console.log('  - "Technical analysis for Bitcoin"\n');
     });
@@ -252,244 +251,77 @@ class XMTPResearchAgent {
   }
 
   private async handleResearchRequest(userQuery: string): Promise<string> {
-    console.log(`🔍 Processing research request with Claude + Locus MCP: "${userQuery}"`);
+    console.log(`🔍 Processing research request with Claude Agent SDK + Locus MCP`);
+    console.log(`   Query: "${userQuery}"`);
 
     try {
-      // Initialize Anthropic client
-      const anthropic = new Anthropic({
-        apiKey: ANTHROPIC_API_KEY,
+      // Use Claude Agent SDK with Locus MCP server
+      const result = query({
+        prompt: userQuery,
+        options: {
+          // Configure Locus as MCP server
+          mcpServers: {
+            'locus': {
+              type: 'http',
+              url: LOCUS_MCP_SERVER_URL,
+              headers: {
+                'Authorization': `Bearer ${LOCUS_API_KEY}`,
+              },
+            },
+          },
+          // Permission settings - bypass for autonomous operation
+          permissionMode: 'bypassPermissions',
+          // Use working directory
+          cwd: process.cwd(),
+          // Don't include partial messages (we just want final results)
+          includePartialMessages: false,
+        },
       });
 
-      // Define tools (x402 endpoints) for Claude to use
-      // All endpoints are approved in Locus and will be paid via x402
-      const tools = [
-        {
-          name: 'ai_research',
-          description: 'Get AI-powered research and analysis on any topic using Capminal AI. Use for general research questions, market analysis, or in-depth topic exploration.',
-          input_schema: {
-            type: 'object' as const,
-            properties: {
-              query: {
-                type: 'string' as const,
-                description: 'The research query or topic to investigate'
-              }
-            },
-            required: ['query']
-          }
-        },
-        {
-          name: 'weather_data',
-          description: 'Get current weather conditions and forecasts for any location using SAPA AI weather service.',
-          input_schema: {
-            type: 'object' as const,
-            properties: {
-              location: {
-                type: 'string' as const,
-                description: 'City name, zip code, or location (e.g., "New York", "London", "90210")'
-              }
-            },
-            required: ['location']
-          }
-        },
-        {
-          name: 'llm_research',
-          description: 'Get LLM-powered research from Otto AI on any topic. Good for detailed analysis, summaries, and comprehensive research.',
-          input_schema: {
-            type: 'object' as const,
-            properties: {
-              query: {
-                type: 'string' as const,
-                description: 'The research topic or question'
-              }
-            },
-            required: ['query']
-          }
-        },
-        {
-          name: 'job_search',
-          description: 'Search for job listings and opportunities via Otaku messaging platform.',
-          input_schema: {
-            type: 'object' as const,
-            properties: {
-              query: {
-                type: 'string' as const,
-                description: 'Job title, keywords, or category (e.g., "software engineer", "remote developer")'
-              }
-            },
-            required: ['query']
-          }
-        },
-        {
-          name: 'crypto_gems',
-          description: 'Get list of promising crypto tokens and gems from Canza. Use when users ask about new crypto opportunities or emerging tokens.',
-          input_schema: {
-            type: 'object' as const,
-            properties: {
-              category: {
-                type: 'string' as const,
-                description: 'Optional filter category (e.g., "defi", "gaming", "ai"). Leave as "all" for full list.'
-              }
-            },
-            required: ['category']
-          }
-        },
-        {
-          name: 'technical_analysis',
-          description: 'Get technical analysis for cryptocurrencies from EthyAI. Provides indicators, support/resistance levels, and trading signals.',
-          input_schema: {
-            type: 'object' as const,
-            properties: {
-              symbol: {
-                type: 'string' as const,
-                description: 'The cryptocurrency symbol (e.g., BTC, ETH, SOL)'
-              }
-            },
-            required: ['symbol']
-          }
-        }
-      ];
+      let finalResponse = '';
+      let toolCalls = 0;
+      let totalCost = 0;
 
-      // Initial API call to Claude with tools
-      let response = await anthropic.messages.create({
-        model: 'claude-sonnet-4-5-20250929',
-        max_tokens: 4096,
-        tools: tools,
-        messages: [{
-          role: 'user',
-          content: `You are a helpful research agent with access to premium data sources via x402 paid endpoints.
+      // Stream messages from Claude
+      for await (const message of result) {
+        this.logMessage(message);
 
-USER REQUEST: ${userQuery}
-
-You have access to these tools (all paid via x402):
-- ai_research(query) - AI-powered research on any topic (Capminal)
-- weather_data(location) - Weather forecasts and conditions (SAPA AI)
-- llm_research(query) - LLM-powered topic research (Otto AI)
-- job_search(query) - Job listings and opportunities (Otaku)
-- crypto_gems(category) - Promising crypto tokens (Canza)
-- technical_analysis(symbol) - Crypto technical analysis (EthyAI)
-
-IMPORTANT INSTRUCTIONS:
-1. Use the available tools to get REAL DATA from premium sources
-2. Call multiple tools when relevant for comprehensive answers
-3. Choose the RIGHT tool(s) for the user's question
-4. If a tool returns an error, acknowledge it gracefully and try to help with available information
-5. If multiple tools fail, explain the situation honestly and offer alternative help
-6. Format responses clearly and professionally
-7. Always provide value to the user, even when tools are unavailable
-
-Provide helpful, accurate information based on REAL DATA from premium sources when available.`
-        }],
-      });
-
-      console.log(`📞 Initial Claude response - Stop reason: ${response.stop_reason}`);
-
-      // Handle tool use (iterative conversation)
-      const conversationMessages: any[] = [{
-        role: 'user',
-        content: `You are a helpful research agent with access to premium data sources via x402 paid endpoints.
-
-USER REQUEST: ${userQuery}
-
-You have access to these tools (all paid via x402):
-- ai_research(query) - AI-powered research on any topic (Capminal)
-- weather_data(location) - Weather forecasts and conditions (SAPA AI)
-- llm_research(query) - LLM-powered topic research (Otto AI)
-- job_search(query) - Job listings and opportunities (Otaku)
-- crypto_gems(category) - Promising crypto tokens (Canza)
-- technical_analysis(symbol) - Crypto technical analysis (EthyAI)
-
-IMPORTANT INSTRUCTIONS:
-1. Use the available tools to get REAL DATA from premium sources
-2. Call multiple tools when relevant for comprehensive answers
-3. Choose the RIGHT tool(s) for the user's question
-4. If a tool returns an error, acknowledge it gracefully and try to help with available information
-5. If multiple tools fail, explain the situation honestly and offer alternative help
-6. Format responses clearly and professionally
-7. Always provide value to the user, even when tools are unavailable
-
-Provide helpful, accurate information based on REAL DATA from premium sources when available.`
-      }];
-
-      let iterationCount = 0;
-      const maxIterations = 10; // Prevent infinite loops
-
-      while (response.stop_reason === 'tool_use' && iterationCount < maxIterations) {
-        iterationCount++;
-        console.log(`\n🔧 Tool use iteration ${iterationCount}:`);
-
-        // Add assistant's response to conversation
-        conversationMessages.push({
-          role: 'assistant',
-          content: response.content
-        });
-
-        // Process tool calls
-        const toolResults: any[] = [];
-        for (const block of response.content) {
-          if (block.type === 'tool_use') {
-            console.log(`   Calling: ${block.name}(${JSON.stringify(block.input)})`);
-            
-            try {
-              // Call the actual x402 endpoint
-              const toolResult = await this.callX402Endpoint(block.name, block.input);
-              
-              toolResults.push({
-                type: 'tool_result',
-                tool_use_id: block.id,
-                content: JSON.stringify(toolResult)
-              });
-
-              console.log(`   ✅ ${block.name} completed`);
-            } catch (toolError) {
-              // If a tool fails, report the error to Claude so it can handle gracefully
-              const errorMessage = toolError instanceof Error ? toolError.message : 'Unknown error';
-              console.error(`   ❌ ${block.name} failed: ${errorMessage}`);
-              
-              toolResults.push({
-                type: 'tool_result',
-                tool_use_id: block.id,
-                content: JSON.stringify({
-                  error: true,
-                  message: errorMessage
-                }),
-                is_error: true
-              });
+        if (message.type === 'assistant') {
+          // Extract text from assistant message
+          for (const block of message.message.content) {
+            if (block.type === 'text') {
+              finalResponse += block.text;
+            } else if (block.type === 'tool_use') {
+              toolCalls++;
+              console.log(`   🔧 Tool call: ${block.name}`);
             }
           }
-        }
-
-        // Add tool results to conversation
-        conversationMessages.push({
-          role: 'user',
-          content: toolResults
-        });
-
-        // Continue conversation with tool results
-        response = await anthropic.messages.create({
-          model: 'claude-sonnet-4-5-20250929',
-          max_tokens: 4096,
-          tools: tools,
-          messages: conversationMessages,
-        });
-
-        console.log(`   Stop reason: ${response.stop_reason}`);
-      }
-
-      // Extract final text response
-      let fullResponse = '';
-      for (const block of response.content) {
-        if (block.type === 'text') {
-          fullResponse += block.text;
+        } else if (message.type === 'result') {
+          // Final result message
+          if (message.subtype === 'success') {
+            console.log(`\n✅ Research completed successfully`);
+            console.log(`   Tool calls: ${toolCalls}`);
+            console.log(`   Turns: ${message.num_turns}`);
+            console.log(`   Cost: $${message.total_cost_usd.toFixed(4)}`);
+            console.log(`   Duration: ${(message.duration_ms / 1000).toFixed(2)}s`);
+            
+            totalCost = message.total_cost_usd;
+            
+            // Use the result if final response is empty
+            if (!finalResponse && message.result) {
+              finalResponse = message.result;
+            }
+          } else {
+            console.error(`   ❌ Research failed: ${message.subtype}`);
+          }
         }
       }
 
-      console.log(`\n✅ Research completed`);
-      console.log(`   Model: ${response.model}`);
-      console.log(`   Tool calls: ${iterationCount} iterations`);
-      console.log(`   Input tokens: ${response.usage.input_tokens}`);
-      console.log(`   Output tokens: ${response.usage.output_tokens}`);
+      if (!finalResponse) {
+        return 'I processed your request but encountered an issue generating a response. Please try again.';
+      }
 
-      return fullResponse || 'No response generated. Please try again.';
+      return finalResponse;
 
     } catch (error) {
       console.error('❌ Error in handleResearchRequest:', error);
@@ -497,13 +329,11 @@ Provide helpful, accurate information based on REAL DATA from premium sources wh
       // Provide helpful error message
       if (error instanceof Error) {
         if (error.message.includes('API key') || error.message.includes('api_key')) {
-          return '❌ Claude API key error. Please check your ANTHROPIC_API_KEY configuration.';
+          return '❌ API key error. Please check your ANTHROPIC_API_KEY or LOCUS_API_KEY configuration.';
         } else if (error.message.includes('rate_limit')) {
           return '❌ Rate limit exceeded. Please try again in a moment.';
-        } else if (error.message.includes('overloaded')) {
-          return '❌ API is overloaded. Please try again in a moment.';
-        } else if (error.message.includes('Locus') || error.message.includes('x402')) {
-          return `❌ Payment service error: ${error.message}. Check your Locus configuration and wallet balance.`;
+        } else if (error.message.includes('MCP') || error.message.includes('server')) {
+          return `❌ MCP server error: ${error.message}. Check your Locus configuration.`;
         }
       }
       
@@ -512,107 +342,28 @@ Provide helpful, accurate information based on REAL DATA from premium sources wh
   }
 
   /**
-   * Call x402 endpoint via Locus MCP
-   * This is where payments are actually made
+   * Log SDK messages for debugging
    */
-  private async callX402Endpoint(toolName: string, params: any): Promise<any> {
-    try {
-      // Map tool names to APPROVED x402 endpoints and their HTTP methods
-      // Note: Using HTTPS to avoid redirect issues
-      const endpointConfig: Record<string, { url: string; method: 'GET' | 'POST' }> = {
-        'ai_research': { url: 'https://www.capminal.ai/api/x402/research', method: 'POST' },
-        'weather_data': { url: 'https://sbx-x402.sapa-ai.com/weather', method: 'GET' },
-        'llm_research': { url: 'https://x402.ottoai.services/llm-research', method: 'POST' },
-        'job_search': { url: 'https://otaku.so/api/messaging/jobs', method: 'POST' },
-        'crypto_gems': { url: 'https://api.canza.app/token/gems-list', method: 'GET' },
-        'technical_analysis': { url: 'https://api.ethyai.app/x402/ta', method: 'GET' }
-      };
-
-      const config = endpointConfig[toolName];
-      if (!config) {
-        throw new Error(`Unknown tool: ${toolName}`);
+  private logMessage(message: SDKMessage) {
+    if (message.type === 'system' && message.subtype === 'init') {
+      console.log(`\n🎯 Claude Agent SDK initialized`);
+      console.log(`   Model: ${message.model}`);
+      console.log(`   Permission mode: ${message.permissionMode}`);
+      console.log(`   Available tools: ${message.tools.join(', ')}`);
+      console.log(`   MCP servers: ${message.mcp_servers.map(s => `${s.name} (${s.status})`).join(', ')}`);
+    } else if (message.type === 'user') {
+      console.log(`   📤 User message sent`);
+    } else if (message.type === 'assistant') {
+      const toolUses = message.message.content.filter(b => b.type === 'tool_use');
+      if (toolUses.length > 0) {
+        console.log(`   🔧 Claude is using ${toolUses.length} tool(s)`);
       }
-
-      console.log(`   💰 Making x402 payment call to: ${config.url}`);
-
-      // Build URL with query params for GET requests
-      let finalUrl = config.url;
-      if (config.method === 'GET') {
-        const queryParams = new URLSearchParams();
-        if (params.symbol) queryParams.append('ticker', params.symbol);
-        if (params.query) queryParams.append('query', params.query);
-        if (params.location) queryParams.append('location', params.location);
-        if (params.category) queryParams.append('category', params.category);
-        
-        if (queryParams.toString()) {
-          finalUrl += `?${queryParams.toString()}`;
-        }
+      const textBlocks = message.message.content.filter(b => b.type === 'text');
+      if (textBlocks.length > 0) {
+        console.log(`   💭 Claude is thinking/responding...`);
       }
-
-      // Prepare request body for POST
-      const requestBody: any = {};
-      if (config.method === 'POST') {
-        if (params.symbol) requestBody.symbol = params.symbol;
-        if (params.query) requestBody.query = params.query;
-        if (params.location) requestBody.location = params.location;
-        if (params.category) requestBody.category = params.category;
-      }
-
-      // Make direct call to x402 endpoint
-      let response = await fetch(finalUrl, {
-        method: config.method,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${LOCUS_API_KEY}`,
-          'Accept': 'application/json',
-        },
-        ...(config.method === 'POST' ? { body: JSON.stringify(requestBody) } : {})
-      });
-
-      // Handle 402 Payment Required - endpoint needs payment
-      if (response.status === 402) {
-        const paymentInfo: any = await response.json();
-        console.log(`   💳 Payment required for ${toolName}`);
-        console.log(`   📋 Payment info:`, JSON.stringify(paymentInfo, null, 2));
-        
-        // Return payment info as error for now
-        throw new Error(`Payment required for ${toolName}. Endpoint requires x402 payment. Payment details: ${JSON.stringify(paymentInfo.accepts?.[0] || paymentInfo)}`);
-      }
-
-      if (!response.ok) {
-        let errorText = '';
-        try {
-          errorText = await response.text();
-        } catch (e) {
-          errorText = 'Unable to read error response';
-        }
-        console.error(`   ❌ x402 endpoint error (${response.status}): ${errorText}`);
-        
-        // Handle specific error cases
-        if (response.status === 402) {
-          throw new Error(`Payment required for ${toolName}. Please check your Locus wallet balance and approved endpoints.`);
-        } else if (response.status === 404) {
-          throw new Error(`Endpoint ${toolName} not found. This endpoint may not be available or the URL may be incorrect.`);
-        } else if (response.status === 405) {
-          throw new Error(`Endpoint ${toolName} does not support the ${config.method} method. The endpoint URL or configuration may be incorrect.`);
-        } else if (response.status >= 500) {
-          throw new Error(`Endpoint ${toolName} server error (${response.status}). The service may be temporarily unavailable.`);
-        }
-        
-        throw new Error(`Endpoint ${toolName} returned ${response.status}: ${errorText}`);
-      }
-
-      const data = await response.json();
-      console.log(`   ✅ Data received from ${toolName}`);
-      
-      return data;
-
-    } catch (error) {
-      console.error(`   ❌ Error calling x402 endpoint:`, error);
-      throw error;
     }
   }
-
 }
 
 // Start the agent

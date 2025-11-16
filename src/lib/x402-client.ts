@@ -1,0 +1,206 @@
+/**
+ * x402 Payment Client
+ * Handles the x402 payment protocol flow for calling paid endpoints
+ */
+
+import { createWalletClient, http, parseUnits, type Address } from 'viem';
+import { base, baseSepolia } from 'viem/chains';
+import { privateKeyToAccount } from 'viem/accounts';
+
+export interface X402PaymentInfo {
+  accepts: Array<{
+    type: 'erc20' | 'erc1155';
+    quantity: string;
+    address: Address;
+    receiver: Address;
+    chainId: number;
+  }>;
+  nonce: string;
+}
+
+export interface X402ClientConfig {
+  privateKey: `0x${string}`;
+  rpcUrl: string;
+  useMainnet: boolean;
+}
+
+export class X402Client {
+  private walletClient: any;
+  private account: any;
+  private chain: any;
+
+  constructor(config: X402ClientConfig) {
+    this.account = privateKeyToAccount(config.privateKey);
+    this.chain = config.useMainnet ? base : baseSepolia;
+    
+    this.walletClient = createWalletClient({
+      account: this.account,
+      chain: this.chain,
+      transport: http(config.rpcUrl),
+    });
+  }
+
+  /**
+   * Call an x402 endpoint with automatic payment handling
+   */
+  async callEndpoint(
+    url: string,
+    options: {
+      method: 'GET' | 'POST';
+      body?: any;
+      queryParams?: Record<string, string>;
+    }
+  ): Promise<any> {
+    const { method, body, queryParams } = options;
+
+    // Build final URL with query params for GET requests
+    let finalUrl = url;
+    if (method === 'GET' && queryParams) {
+      const params = new URLSearchParams(queryParams);
+      finalUrl = `${url}?${params.toString()}`;
+    }
+
+    // Step 1: Initial request without payment
+    console.log(`   📡 Initial request to: ${finalUrl}`);
+    
+    let response = await fetch(finalUrl, {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      ...(method === 'POST' && body ? { body: JSON.stringify(body) } : {}),
+    });
+
+    // Step 2: Handle 402 Payment Required
+    if (response.status === 402) {
+      console.log(`   💳 Payment required (402 response)`);
+      
+      // Get payment info from response
+      const paymentInfo: X402PaymentInfo = await response.json();
+      console.log(`   📋 Payment details:`, JSON.stringify(paymentInfo, null, 2));
+
+      if (!paymentInfo.accepts || paymentInfo.accepts.length === 0) {
+        throw new Error('No payment options available in 402 response');
+      }
+
+      // Use the first payment option (USDC ERC20)
+      const payment = paymentInfo.accepts[0];
+      
+      if (payment.type !== 'erc20') {
+        throw new Error(`Unsupported payment type: ${payment.type}`);
+      }
+
+      // Step 3: Make payment on-chain
+      console.log(`   💰 Sending ${payment.quantity} USDC payment to ${payment.receiver}`);
+      
+      try {
+        // ERC20 transfer ABI
+        const transferAbi = [{
+          name: 'transfer',
+          type: 'function',
+          stateMutability: 'nonpayable',
+          inputs: [
+            { name: 'to', type: 'address' },
+            { name: 'amount', type: 'uint256' }
+          ],
+          outputs: [{ name: '', type: 'bool' }]
+        }] as const;
+
+        // Parse amount (payment.quantity is in smallest units, e.g., "100000" for 0.1 USDC)
+        const amount = BigInt(payment.quantity);
+
+        // Send USDC transfer transaction
+        const hash = await this.walletClient.writeContract({
+          address: payment.address as Address,
+          abi: transferAbi,
+          functionName: 'transfer',
+          args: [payment.receiver, amount],
+        });
+
+        console.log(`   ✅ Payment transaction sent: ${hash}`);
+        console.log(`   ⏳ Waiting for confirmation...`);
+
+        // Wait for transaction confirmation
+        // Note: In production, you might want to wait for multiple confirmations
+        await this.waitForTransaction(hash);
+
+        console.log(`   ✅ Payment confirmed on-chain`);
+
+        // Step 4: Retry request with payment proof
+        console.log(`   🔄 Retrying request with payment proof`);
+        
+        response = await fetch(finalUrl, {
+          method,
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'X-Payment-Hash': hash,
+            'X-Payment-Nonce': paymentInfo.nonce,
+          },
+          ...(method === 'POST' && body ? { body: JSON.stringify(body) } : {}),
+        });
+
+        if (!response.ok) {
+          throw new Error(`Request failed after payment: ${response.status} ${response.statusText}`);
+        }
+
+      } catch (paymentError) {
+        console.error(`   ❌ Payment failed:`, paymentError);
+        throw new Error(`Payment failed: ${paymentError instanceof Error ? paymentError.message : 'Unknown error'}`);
+      }
+    }
+
+    // Step 5: Handle response
+    if (!response.ok) {
+      let errorText = '';
+      try {
+        errorText = await response.text();
+      } catch (e) {
+        errorText = 'Unable to read error response';
+      }
+      
+      throw new Error(`Request failed: ${response.status} ${response.statusText} - ${errorText}`);
+    }
+
+    // Return the data
+    const data = await response.json();
+    console.log(`   ✅ Data received successfully`);
+    
+    return data;
+  }
+
+  /**
+   * Wait for transaction confirmation
+   */
+  private async waitForTransaction(hash: `0x${string}`): Promise<void> {
+    const maxAttempts = 30; // 30 attempts * 2 seconds = 60 seconds max wait
+    let attempts = 0;
+
+    while (attempts < maxAttempts) {
+      try {
+        const receipt = await this.walletClient.getTransactionReceipt({ hash });
+        if (receipt && receipt.status === 'success') {
+          return;
+        }
+        if (receipt && receipt.status === 'reverted') {
+          throw new Error('Transaction reverted');
+        }
+      } catch (error) {
+        // Transaction not yet mined, continue waiting
+      }
+
+      await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds
+      attempts++;
+    }
+
+    throw new Error('Transaction confirmation timeout');
+  }
+
+  /**
+   * Get account address
+   */
+  getAddress(): Address {
+    return this.account.address;
+  }
+}
