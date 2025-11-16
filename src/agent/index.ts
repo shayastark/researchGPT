@@ -335,7 +335,24 @@ class XMTPResearchAgent {
       },
     }));
 
+    // Get current date info for system prompt
+    const now = new Date();
+    const today = now.toISOString().split('T')[0];
+
     let messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+      {
+        role: 'system',
+        content: `You are a helpful research assistant with access to paid data services via the x402 protocol.
+
+CURRENT DATE: ${today}
+
+IMPORTANT GUIDELINES:
+1. Only use paid tools when the user explicitly requests data, research, or information that requires calling an API
+2. If the user asks ABOUT the x402 services, protocol, or capabilities, answer directly without calling tools
+3. Each tool call costs money (paid in USDC on Base blockchain), so only use them when necessary
+4. When researching, focus on the user's specific request and use the most appropriate tool
+5. You are operating in November 2025, so focus on current and recent information`,
+      },
       {
         role: 'user',
         content: userQuery,

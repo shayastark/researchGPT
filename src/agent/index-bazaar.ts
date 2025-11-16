@@ -482,9 +482,16 @@ class XMTPBazaarAgent {
         // Use actual query parameters from schema
         for (const [paramName, paramSchema] of Object.entries(queryParams)) {
           const schema = paramSchema as any;
+          let description = schema.description || `${paramName} parameter`;
+          
+          // Add date guidance for date-related parameters
+          if (paramName.includes('date') || paramName.includes('time')) {
+            description += ` (Use format YYYY-MM-DD. For recent/current data, use dates from the last 30 days. Today is ${new Date().toISOString().split('T')[0]})`;
+          }
+          
           properties[paramName] = {
             type: schema.type || 'string',
-            description: schema.description || `${paramName} parameter`,
+            description,
           };
           if (schema.required) {
             required.push(paramName);
@@ -520,7 +527,32 @@ class XMTPBazaarAgent {
       };
     });
 
+    // Get current date info for system prompt
+    const now = new Date();
+    const today = now.toISOString().split('T')[0];
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
     let messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+      {
+        role: 'system',
+        content: `You are a helpful research assistant with access to paid data services via the x402 protocol.
+
+CURRENT DATE: ${today}
+
+IMPORTANT GUIDELINES:
+1. Only use paid tools when the user explicitly requests data, research, or information that requires calling an API
+2. If the user asks ABOUT the services, protocol, or capabilities, answer directly without calling tools
+3. When filling date parameters (from_date, to_date, etc.):
+   - For "latest" or "recent" news/data: Use ${sevenDaysAgo} to ${today} (last 7 days)
+   - For "current" information: Use ${thirtyDaysAgo} to ${today} (last 30 days)
+   - NEVER use dates from 2023 or earlier unless explicitly requested
+   - Always use YYYY-MM-DD format
+4. Use appropriate, recent date ranges that match the user's intent
+5. Each tool call costs money, so only use them when necessary
+
+Remember: You are operating in November 2025. Any "recent" data should be from 2025.`,
+      },
       {
         role: 'user',
         content: userQuery,
@@ -614,6 +646,9 @@ class XMTPBazaarAgent {
       throw new Error('x402 payment client not configured');
     }
 
+    // Validate date parameters to catch obviously wrong dates
+    this.validateDateParameters(input);
+
     const inputSchema = tool.paymentInfo.outputSchema?.input;
     const method = (inputSchema?.method || 'GET').toUpperCase() as 'GET' | 'POST';
 
@@ -652,6 +687,33 @@ class XMTPBazaarAgent {
     console.log(`      ✅ Data received via official x402 protocol`);
     
     return result;
+  }
+
+  /**
+   * Validate date parameters to catch obviously wrong dates
+   */
+  private validateDateParameters(input: Record<string, any>): void {
+    const currentYear = new Date().getFullYear();
+    const oneYearAgo = currentYear - 1;
+    
+    for (const [key, value] of Object.entries(input)) {
+      // Check if this looks like a date parameter
+      if ((key.includes('date') || key.includes('time')) && typeof value === 'string') {
+        // Check if it matches YYYY-MM-DD or YYYY/MM/DD format
+        const dateMatch = value.match(/(\d{4})[/-](\d{1,2})[/-](\d{1,2})/);
+        if (dateMatch) {
+          const year = parseInt(dateMatch[1]);
+          
+          // Warn if date is more than 1 year old
+          if (year < oneYearAgo) {
+            console.log(`\n   ⚠️  WARNING: Potentially outdated date parameter detected`);
+            console.log(`      Parameter: ${key} = ${value}`);
+            console.log(`      This is from ${year}, but current year is ${currentYear}`);
+            console.log(`      API call will proceed, but results may be historical data`);
+          }
+        }
+      }
+    }
   }
 }
 
