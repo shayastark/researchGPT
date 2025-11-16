@@ -51,7 +51,7 @@ class XMTPResearchAgent {
     console.log(`🤖 XMTP Research Agent Configuration:`);
     console.log(`   XMTP Network: ${XMTP_ENV}`);
     console.log(`   AI: Claude (Anthropic)`);
-    console.log(`   Payments: Locus MCP (multi-facilitator support)`);
+    console.log(`   Payments: Locus x402 (6 premium data sources)`);
     console.log(`   HTTP Port: ${PORT}`);
     
     // Warning if on dev network
@@ -89,13 +89,17 @@ class XMTPResearchAgent {
           agentAddress: this.agent?.address || 'not initialized',
           inboxId: this.agent?.client?.inboxId || 'not initialized',
           ai: 'Claude Sonnet 4.5',
-          paymentSystem: 'Locus MCP',
-          multiFacilitator: true,
+          paymentSystem: 'Locus x402',
+          approvedEndpoints: 6,
           volumePath: RAILWAY_VOLUME || 'not configured',
         },
         capabilities: {
-          locusFacilitator: ['ethyai.app/x402/ta'],
-          cdpFacilitator: ['x402scan marketplace services'],
+          aiResearch: 'Capminal AI',
+          weather: 'SAPA AI',
+          llmResearch: 'Otto AI',
+          jobSearch: 'Otaku',
+          cryptoGems: 'Canza',
+          technicalAnalysis: 'EthyAI',
           autonomousPayments: true,
           policyEnforcement: true,
         },
@@ -108,9 +112,10 @@ class XMTPResearchAgent {
     this.httpServer.get('/', (req, res) => {
       res.json({
         service: 'XMTP Research Agent',
-        message: 'Multi-facilitator AI agent with Locus MCP. Send XMTP messages to interact.',
+        message: 'AI research agent with access to 6 premium data sources via Locus x402. Send XMTP messages to interact.',
         agentAddress: this.agent?.address || 'initializing...',
         xmtpNetwork: XMTP_ENV,
+        dataSources: ['Capminal AI', 'SAPA Weather', 'Otto AI', 'Otaku Jobs', 'Canza Gems', 'EthyAI TA'],
         endpoints: {
           health: '/health',
           status: '/status',
@@ -224,7 +229,7 @@ class XMTPResearchAgent {
       console.log(`📊 InboxId: ${this.agent.client.inboxId}`);
       console.log(`🌐 Environment: ${XMTP_ENV}`);
       console.log(`🤖 AI: Claude Sonnet 4.5`);
-      console.log(`💰 Payments: Locus MCP (multi-facilitator)`);
+      console.log(`💰 Payments: Locus x402 (6 approved sources)`);
       
       if (XMTP_ENV === 'production') {
         console.log('✅ Users can message you on xmtp.chat!');
@@ -233,11 +238,13 @@ class XMTPResearchAgent {
         console.log('   Use a dev client or switch to production');
       }
       
-      console.log(`\n💡 Send a message to start researching!\n`);
+      console.log(`\n💡 Send a message to access premium data sources!\n`);
       console.log('Example queries:');
-      console.log('  - "What\'s Bitcoin\'s price and sentiment?"');
-      console.log('  - "Give me technical analysis on ETH"');
-      console.log('  - "Full research on Base ecosystem tokens"\n');
+      console.log('  - "What\'s the weather in San Francisco?"');
+      console.log('  - "Research the latest AI trends"');
+      console.log('  - "Find me software engineering jobs"');
+      console.log('  - "What are some promising crypto gems?"');
+      console.log('  - "Technical analysis for Bitcoin"\n');
     });
 
     // Start the agent
@@ -254,52 +261,81 @@ class XMTPResearchAgent {
       });
 
       // Define tools (x402 endpoints) for Claude to use
+      // All endpoints are approved in Locus and will be paid via x402
       const tools = [
         {
+          name: 'ai_research',
+          description: 'Get AI-powered research and analysis on any topic using Capminal AI. Use for general research questions, market analysis, or in-depth topic exploration.',
+          input_schema: {
+            type: 'object' as const,
+            properties: {
+              query: {
+                type: 'string' as const,
+                description: 'The research query or topic to investigate'
+              }
+            },
+            required: ['query']
+          }
+        },
+        {
+          name: 'weather_data',
+          description: 'Get current weather conditions and forecasts for any location using SAPA AI weather service.',
+          input_schema: {
+            type: 'object' as const,
+            properties: {
+              location: {
+                type: 'string' as const,
+                description: 'City name, zip code, or location (e.g., "New York", "London", "90210")'
+              }
+            },
+            required: ['location']
+          }
+        },
+        {
+          name: 'llm_research',
+          description: 'Get LLM-powered research from Otto AI on any topic. Good for detailed analysis, summaries, and comprehensive research.',
+          input_schema: {
+            type: 'object' as const,
+            properties: {
+              query: {
+                type: 'string' as const,
+                description: 'The research topic or question'
+              }
+            },
+            required: ['query']
+          }
+        },
+        {
+          name: 'job_search',
+          description: 'Search for job listings and opportunities via Otaku messaging platform.',
+          input_schema: {
+            type: 'object' as const,
+            properties: {
+              query: {
+                type: 'string' as const,
+                description: 'Job title, keywords, or category (e.g., "software engineer", "remote developer")'
+              }
+            },
+            required: ['query']
+          }
+        },
+        {
+          name: 'crypto_gems',
+          description: 'Get list of promising crypto tokens and gems from Canza. Use when users ask about new crypto opportunities or emerging tokens.',
+          input_schema: {
+            type: 'object' as const,
+            properties: {
+              category: {
+                type: 'string' as const,
+                description: 'Optional filter category (e.g., "defi", "gaming", "ai"). Leave as "all" for full list.'
+              }
+            },
+            required: ['category']
+          }
+        },
+        {
           name: 'technical_analysis',
-          description: 'Get technical analysis for a cryptocurrency. Provides indicators, support/resistance levels, and trend analysis.',
-          input_schema: {
-            type: 'object' as const,
-            properties: {
-              symbol: {
-                type: 'string' as const,
-                description: 'The cryptocurrency symbol (e.g., BTC, ETH, SOL)'
-              }
-            },
-            required: ['symbol']
-          }
-        },
-        {
-          name: 'market_data',
-          description: 'Get current market data including price, volume, market cap, and 24h change for a cryptocurrency.',
-          input_schema: {
-            type: 'object' as const,
-            properties: {
-              symbol: {
-                type: 'string' as const,
-                description: 'The cryptocurrency symbol (e.g., BTC, ETH, SOL)'
-              }
-            },
-            required: ['symbol']
-          }
-        },
-        {
-          name: 'sentiment_analysis',
-          description: 'Get sentiment analysis from social media, news, and influencers for a cryptocurrency.',
-          input_schema: {
-            type: 'object' as const,
-            properties: {
-              symbol: {
-                type: 'string' as const,
-                description: 'The cryptocurrency symbol (e.g., BTC, ETH, SOL)'
-              }
-            },
-            required: ['symbol']
-          }
-        },
-        {
-          name: 'onchain_analytics',
-          description: 'Get on-chain analytics including whale activity, holder distribution, and transaction metrics.',
+          description: 'Get technical analysis for cryptocurrencies from EthyAI. Provides indicators, support/resistance levels, and trading signals.',
           input_schema: {
             type: 'object' as const,
             properties: {
@@ -320,23 +356,26 @@ class XMTPResearchAgent {
         tools: tools,
         messages: [{
           role: 'user',
-          content: `You are a crypto research agent with access to real-time data services via x402 paid endpoints.
+          content: `You are a helpful research agent with access to premium data sources via x402 paid endpoints.
 
 USER REQUEST: ${userQuery}
 
-You have access to these tools (all require x402 payment):
-- technical_analysis(symbol) - Technical indicators and patterns  
-- market_data(symbol) - Price, volume, market cap data
-- sentiment_analysis(symbol) - Social sentiment and news
-- onchain_analytics(symbol) - Blockchain analytics and whale activity
+You have access to these tools (all paid via Locus x402):
+- ai_research(query) - AI-powered research on any topic (Capminal)
+- weather_data(location) - Weather forecasts and conditions (SAPA AI)
+- llm_research(query) - LLM-powered topic research (Otto AI)
+- job_search(query) - Job listings and opportunities (Otaku)
+- crypto_gems(category) - Promising crypto tokens (Canza)
+- technical_analysis(symbol) - Crypto technical analysis (EthyAI)
 
 IMPORTANT: 
-1. Use the available tools to get REAL DATA for comprehensive research
-2. Call multiple tools for better insights (e.g., for Bitcoin research, call technical_analysis, market_data, sentiment_analysis)
-3. Base your analysis on the ACTUAL DATA from the tools, not generic knowledge
-4. Format your response professionally with clear sections
+1. Use the available tools to get REAL DATA from premium sources
+2. Call multiple tools when relevant for comprehensive answers
+3. Choose the RIGHT tool(s) for the user's question
+4. Base your response on ACTUAL DATA from the tools
+5. Format responses clearly and professionally
 
-Provide a comprehensive research report based on REAL DATA from the tools.`
+Provide helpful, accurate information based on REAL DATA from premium sources.`
         }],
       });
 
@@ -345,23 +384,26 @@ Provide a comprehensive research report based on REAL DATA from the tools.`
       // Handle tool use (iterative conversation)
       const conversationMessages: any[] = [{
         role: 'user',
-        content: `You are a crypto research agent with access to real-time data services via x402 paid endpoints.
+        content: `You are a helpful research agent with access to premium data sources via x402 paid endpoints.
 
 USER REQUEST: ${userQuery}
 
-You have access to these tools (all require x402 payment):
-- technical_analysis(symbol) - Technical indicators and patterns  
-- market_data(symbol) - Price, volume, market cap data
-- sentiment_analysis(symbol) - Social sentiment and news
-- onchain_analytics(symbol) - Blockchain analytics and whale activity
+You have access to these tools (all paid via Locus x402):
+- ai_research(query) - AI-powered research on any topic (Capminal)
+- weather_data(location) - Weather forecasts and conditions (SAPA AI)
+- llm_research(query) - LLM-powered topic research (Otto AI)
+- job_search(query) - Job listings and opportunities (Otaku)
+- crypto_gems(category) - Promising crypto tokens (Canza)
+- technical_analysis(symbol) - Crypto technical analysis (EthyAI)
 
 IMPORTANT: 
-1. Use the available tools to get REAL DATA for comprehensive research
-2. Call multiple tools for better insights (e.g., for Bitcoin research, call technical_analysis, market_data, sentiment_analysis)
-3. Base your analysis on the ACTUAL DATA from the tools, not generic knowledge
-4. Format your response professionally with clear sections
+1. Use the available tools to get REAL DATA from premium sources
+2. Call multiple tools when relevant for comprehensive answers
+3. Choose the RIGHT tool(s) for the user's question
+4. Base your response on ACTUAL DATA from the tools
+5. Format responses clearly and professionally
 
-Provide a comprehensive research report based on REAL DATA from the tools.`
+Provide helpful, accurate information based on REAL DATA from premium sources.`
       }];
 
       let iterationCount = 0;
@@ -455,12 +497,14 @@ Provide a comprehensive research report based on REAL DATA from the tools.`
    */
   private async callX402Endpoint(toolName: string, params: any): Promise<any> {
     try {
-      // Map tool names to x402 endpoints
+      // Map tool names to APPROVED x402 endpoints in Locus
       const endpointMap: Record<string, string> = {
-        'technical_analysis': 'http://api.ethyai.app/x402/ta',
-        'market_data': 'http://localhost:3001/api/market',  // Will be replaced with real x402scan endpoint
-        'sentiment_analysis': 'http://localhost:3002/api/sentiment',  // Will be replaced with real x402scan endpoint
-        'onchain_analytics': 'http://localhost:3003/api/onchain'  // Will be replaced with real x402scan endpoint
+        'ai_research': 'https://www.capminal.ai/api/x402/research',
+        'weather_data': 'http://sbx-x402.sapa-ai.com/weather',
+        'llm_research': 'https://x402.ottoai.services/llm-research',
+        'job_search': 'https://otaku.so/api/messaging/jobs',
+        'crypto_gems': 'https://api.canza.app/token/gems-list',
+        'technical_analysis': 'http://api.ethyai.app/x402/ta'
       };
 
       const endpoint = endpointMap[toolName];
@@ -469,6 +513,13 @@ Provide a comprehensive research report based on REAL DATA from the tools.`
       }
 
       console.log(`   💰 Making x402 payment call to: ${endpoint}`);
+
+      // Prepare request body based on parameter names
+      const requestBody: any = {};
+      if (params.symbol) requestBody.symbol = params.symbol;
+      if (params.query) requestBody.query = params.query;
+      if (params.location) requestBody.location = params.location;
+      if (params.category) requestBody.category = params.category;
 
       // Call the endpoint via Locus MCP
       // Locus will handle authentication and payment
@@ -480,19 +531,13 @@ Provide a comprehensive research report based on REAL DATA from the tools.`
           // Locus MCP headers for payment handling
           'X-Locus-Policy-Group': 'default',
         },
-        body: JSON.stringify({
-          query: params.symbol || params.query,
-          ...params
-        })
+        body: JSON.stringify(requestBody)
       });
 
       if (!response.ok) {
         const errorText = await response.text();
         console.error(`   ❌ x402 endpoint error (${response.status}): ${errorText}`);
-        
-        // Return mock data for now if endpoint fails
-        console.log(`   ⚠️  Falling back to mock data for demonstration`);
-        return this.getMockData(toolName, params.symbol);
+        throw new Error(`Endpoint ${toolName} returned ${response.status}: ${errorText}`);
       }
 
       const data = await response.json();
@@ -502,101 +547,10 @@ Provide a comprehensive research report based on REAL DATA from the tools.`
 
     } catch (error) {
       console.error(`   ❌ Error calling x402 endpoint:`, error);
-      
-      // Return mock data as fallback
-      console.log(`   ⚠️  Falling back to mock data for demonstration`);
-      return this.getMockData(toolName, params.symbol);
+      throw error;
     }
   }
 
-  /**
-   * Mock data for when x402 endpoints aren't available
-   * This ensures the demo works even if endpoints are down
-   */
-  private getMockData(toolName: string, symbol: string): any {
-    const timestamp = new Date().toISOString();
-    
-    switch (toolName) {
-      case 'technical_analysis':
-        return {
-          success: true,
-          data: {
-            symbol: symbol,
-            trend: 'bullish',
-            rsi: 67.5,
-            macd: { value: 245.3, signal: 'bullish' },
-            movingAverages: {
-              ma20: 42500,
-              ma50: 41200,
-              ma200: 38900
-            },
-            support: [41000, 39500, 37800],
-            resistance: [44000, 46500, 49000],
-            recommendation: 'BUY',
-            confidence: 0.78,
-            lastUpdated: timestamp,
-            source: 'ethyai.app/x402/ta (via Locus)'
-          }
-        };
-
-      case 'market_data':
-        return {
-          success: true,
-          data: {
-            symbol: symbol,
-            price: 42569.42,
-            volume24h: 28500000000,
-            change24h: 5.23,
-            marketCap: 820000000000,
-            dominance: 54.2,
-            high24h: 43200,
-            low24h: 40800,
-            lastUpdated: timestamp,
-            source: 'x402scan marketplace (via Locus)'
-          }
-        };
-
-      case 'sentiment_analysis':
-        return {
-          success: true,
-          data: {
-            symbol: symbol,
-            overallSentiment: 'bullish',
-            sentimentScore: 7.8,
-            socialVolume: 125000,
-            twitterMentions24h: 45000,
-            redditMentions24h: 8500,
-            newsArticles24h: 342,
-            topKeywords: ['adoption', 'ETF', 'institutional', 'bullrun'],
-            fearGreedIndex: 72,
-            lastUpdated: timestamp,
-            source: 'x402scan marketplace (via Locus)'
-          }
-        };
-
-      case 'onchain_analytics':
-        return {
-          success: true,
-          data: {
-            symbol: symbol,
-            activeAddresses24h: 145000,
-            transactions24h: 892000,
-            transactionVolume24h: 4200000000,
-            whaleActivity: 'accumulation',
-            exchangeNetFlow: 17000000,
-            topHolders: [
-              { address: '0x742...d2f', percentage: 12.5 },
-              { address: '0x9f8...a3e', percentage: 9.0 }
-            ],
-            lastUpdated: timestamp,
-            source: 'x402scan marketplace (via Locus)'
-          }
-        };
-
-      default:
-        return { error: 'Unknown tool', tool: toolName };
-    }
-  }
 }
 
 // Start the agent
