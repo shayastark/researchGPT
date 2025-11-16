@@ -134,17 +134,23 @@ export class X402Client {
           args: [payment.receiver, amount],
         });
 
-        console.log(`   ✅ Payment transaction sent: ${hash}`);
-        console.log(`   ⏳ Waiting for confirmation...`);
+      console.log(`   ✅ Payment transaction sent: ${hash}`);
+      console.log(`   🔗 View on BaseScan: https://basescan.org/tx/${hash}`);
+      console.log(`   ⏳ Waiting for confirmation...`);
 
-        // Wait for transaction confirmation
-        // Note: In production, you might want to wait for multiple confirmations
+      // Wait for transaction confirmation
+      // Note: In production, you might want to wait for multiple confirmations
+      try {
         await this.waitForTransaction(hash);
-
         console.log(`   ✅ Payment confirmed on-chain`);
+      } catch (error) {
+        // If timeout, still try the API call - transaction might have succeeded
+        console.warn(`   ⚠️  Confirmation timeout, but transaction may have succeeded`);
+        console.warn(`   ⚠️  Attempting API call anyway...`);
+      }
 
-        // Step 4: Retry request with payment proof
-        console.log(`   🔄 Retrying request with payment proof`);
+      // Step 4: Retry request with payment proof
+      console.log(`   🔄 Retrying request with payment proof`);
         
         response = await fetch(finalUrl, {
           method,
@@ -187,30 +193,43 @@ export class X402Client {
   }
 
   /**
-   * Wait for transaction confirmation
+   * Wait for transaction confirmation with improved reliability
    */
   private async waitForTransaction(hash: `0x${string}`): Promise<void> {
-    const maxAttempts = 30; // 30 attempts * 2 seconds = 60 seconds max wait
+    const maxAttempts = 60; // 60 attempts * 2 seconds = 120 seconds max wait
     let attempts = 0;
 
     while (attempts < maxAttempts) {
       try {
-        const receipt = await this.walletClient.getTransactionReceipt({ hash });
-        if (receipt && receipt.status === 'success') {
-          return;
-        }
-        if (receipt && receipt.status === 'reverted') {
-          throw new Error('Transaction reverted');
+        // Use publicClient for more reliable receipt checking
+        const receipt = await this.publicClient.getTransactionReceipt({ hash });
+        
+        if (receipt) {
+          if (receipt.status === 'success') {
+            console.log(`   ✅ Transaction confirmed after ${attempts * 2}s`);
+            return;
+          }
+          if (receipt.status === 'reverted') {
+            throw new Error('Transaction reverted on-chain');
+          }
         }
       } catch (error) {
         // Transaction not yet mined, continue waiting
+        // Only log every 5 attempts (10 seconds) to avoid spam
+        if (attempts > 0 && attempts % 5 === 0) {
+          console.log(`   ⏳ Still waiting for confirmation... (${attempts * 2}s elapsed)`);
+        }
       }
 
       await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds
       attempts++;
     }
 
-    throw new Error('Transaction confirmation timeout');
+    // Transaction timed out, but provide helpful info
+    const explorerUrl = `https://basescan.org/tx/${hash}`;
+    console.error(`   ⚠️  Transaction confirmation timeout after ${maxAttempts * 2}s`);
+    console.error(`   💡 Check transaction status: ${explorerUrl}`);
+    throw new Error(`Transaction confirmation timeout. Check status at: ${explorerUrl}`);
   }
 
   /**
@@ -286,12 +305,18 @@ export class X402Client {
       });
 
       console.log(`   ✅ Payment transaction sent: ${hash}`);
+      console.log(`   🔗 View on BaseScan: https://basescan.org/tx/${hash}`);
       console.log(`   ⏳ Waiting for confirmation...`);
 
       // Wait for transaction confirmation
-      await this.waitForTransaction(hash);
-
-      console.log(`   ✅ Payment confirmed on-chain`);
+      try {
+        await this.waitForTransaction(hash);
+        console.log(`   ✅ Payment confirmed on-chain`);
+      } catch (error) {
+        // If timeout, still try the API call - transaction might have succeeded
+        console.warn(`   ⚠️  Confirmation timeout, but transaction may have succeeded`);
+        console.warn(`   ⚠️  Attempting API call anyway...`);
+      }
 
       // Make the actual API request
       console.log(`   🔄 Making authenticated request`);
