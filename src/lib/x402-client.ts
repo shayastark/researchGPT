@@ -3,7 +3,7 @@
  * Handles the x402 payment protocol flow for calling paid endpoints
  */
 
-import { createWalletClient, http, parseUnits, type Address } from 'viem';
+import { createWalletClient, createPublicClient, http, parseUnits, formatUnits, type Address } from 'viem';
 import { base, baseSepolia } from 'viem/chains';
 import { privateKeyToAccount } from 'viem/accounts';
 import type { X402ServiceAccept } from './x402-bazaar-discovery.js';
@@ -27,8 +27,18 @@ export interface X402ClientConfig {
 
 export class X402Client {
   private walletClient: any;
+  private publicClient: any;
   private account: any;
   private chain: any;
+
+  // ERC20 balanceOf ABI
+  private readonly balanceOfAbi = [{
+    name: 'balanceOf',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [{ name: 'account', type: 'address' }],
+    outputs: [{ name: '', type: 'uint256' }]
+  }] as const;
 
   constructor(config: X402ClientConfig) {
     this.account = privateKeyToAccount(config.privateKey);
@@ -36,6 +46,11 @@ export class X402Client {
     
     this.walletClient = createWalletClient({
       account: this.account,
+      chain: this.chain,
+      transport: http(config.rpcUrl),
+    });
+
+    this.publicClient = createPublicClient({
       chain: this.chain,
       transport: http(config.rpcUrl),
     });
@@ -226,6 +241,30 @@ export class X402Client {
     console.log(`      Pay to: ${paymentInfo.payTo}`);
 
     try {
+      // Parse amount
+      const amount = BigInt(paymentInfo.maxAmountRequired);
+      
+      // Check balances before attempting payment
+      console.log(`   🔍 Checking wallet balances...`);
+      const balanceCheck = await this.checkBalances(paymentInfo.asset as Address, amount);
+      
+      if (!balanceCheck.hasEnoughToken || !balanceCheck.hasEnoughEth) {
+        const ethFormatted = formatUnits(balanceCheck.ethBalance, 18);
+        const usdcFormatted = formatUnits(balanceCheck.tokenBalance, 6);
+        const amountFormatted = formatUnits(amount, 6);
+        
+        console.error(`   ❌ Insufficient funds:`);
+        console.error(`      ETH Balance: ${ethFormatted} ETH (need: ~0.001 ETH for gas)`);
+        console.error(`      USDC Balance: ${usdcFormatted} USDC (need: ${amountFormatted} USDC)`);
+        console.error(`      Wallet: ${this.account.address}`);
+        
+        throw new Error(balanceCheck.errorMessage || 'Insufficient funds');
+      }
+      
+      console.log(`   ✅ Wallet has sufficient funds`);
+      console.log(`      ETH: ${formatUnits(balanceCheck.ethBalance, 18)} ETH`);
+      console.log(`      USDC: ${formatUnits(balanceCheck.tokenBalance, 6)} USDC`);
+
       // ERC20 transfer ABI
       const transferAbi = [{
         name: 'transfer',
@@ -237,9 +276,6 @@ export class X402Client {
         ],
         outputs: [{ name: '', type: 'bool' }]
       }] as const;
-
-      // Parse amount
-      const amount = BigInt(paymentInfo.maxAmountRequired);
 
       // Send USDC transfer transaction
       const hash = await this.walletClient.writeContract({
@@ -289,6 +325,64 @@ export class X402Client {
     } catch (error) {
       console.error(`   ❌ Payment or request failed:`, error);
       throw new Error(`x402 call failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Check if wallet has sufficient balances for a payment
+   */
+  async checkBalances(tokenAddress: Address, amount: bigint): Promise<{
+    hasEnoughToken: boolean;
+    hasEnoughEth: boolean;
+    ethBalance: bigint;
+    tokenBalance: bigint;
+    errorMessage?: string;
+  }> {
+    try {
+      // Check ETH balance
+      const ethBalance = await this.publicClient.getBalance({
+        address: this.account.address as Address,
+      });
+
+      // Check token balance
+      const tokenBalance = await this.publicClient.readContract({
+        address: tokenAddress,
+        abi: this.balanceOfAbi,
+        functionName: 'balanceOf',
+        args: [this.account.address as Address],
+      });
+
+      const hasEnoughToken = tokenBalance >= amount;
+      const hasEnoughEth = ethBalance > 0n; // Need at least some ETH for gas
+
+      let errorMessage: string | undefined;
+      if (!hasEnoughToken || !hasEnoughEth) {
+        const parts: string[] = [];
+        
+        if (!hasEnoughEth) {
+          parts.push(`No ETH for gas fees (have: ${formatUnits(ethBalance, 18)} ETH, need: at least 0.001 ETH)`);
+        }
+        
+        if (!hasEnoughToken) {
+          // Assume USDC (6 decimals) for display
+          const tokenRequired = formatUnits(amount, 6);
+          const tokenHave = formatUnits(tokenBalance, 6);
+          parts.push(`Insufficient USDC (have: ${tokenHave} USDC, need: ${tokenRequired} USDC)`);
+        }
+
+        errorMessage = `Wallet funding required: ${parts.join(' AND ')}. Please fund wallet ${this.account.address}`;
+      }
+
+      return {
+        hasEnoughToken,
+        hasEnoughEth,
+        ethBalance,
+        tokenBalance,
+        errorMessage,
+      };
+    } catch (error) {
+      console.error('Error checking balances:', error);
+      throw new Error(`Failed to check wallet balances: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 

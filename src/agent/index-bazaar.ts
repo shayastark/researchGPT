@@ -70,6 +70,9 @@ class XMTPBazaarAgent {
       console.log(`✅ x402 client initialized`);
       console.log(`   Payment wallet: ${this.x402Client.getAddress()}`);
       console.log(`   Network: ${USE_MAINNET ? 'Base Mainnet' : 'Base Sepolia'}`);
+      
+      // Check wallet balances at startup (async, don't block initialization)
+      this.checkWalletBalancesAsync();
     } else {
       console.warn('⚠️  No PAYMENT_PRIVATE_KEY found - x402 payments will fail!');
       console.warn('   Set PAYMENT_PRIVATE_KEY or PRIVATE_KEY to enable payments');
@@ -166,6 +169,38 @@ class XMTPBazaarAgent {
         },
       });
     });
+  }
+
+  /**
+   * Check wallet balances at startup (non-blocking)
+   */
+  private async checkWalletBalancesAsync(): Promise<void> {
+    if (!this.x402Client) return;
+    
+    try {
+      console.log('\n💰 Checking payment wallet balances...');
+      
+      const usdcAddress = USE_MAINNET 
+        ? X402BazaarClient.USDC_BASE_MAINNET 
+        : X402BazaarClient.USDC_BASE_SEPOLIA;
+      
+      // Check balances for a minimal amount (0.01 USDC)
+      const minAmount = BigInt(10000); // 0.01 USDC in atomic units
+      const balances = await this.x402Client.checkBalances(usdcAddress as `0x${string}`, minAmount);
+      
+      if (balances.hasEnoughEth && balances.hasEnoughToken) {
+        console.log('✅ Wallet is funded and ready for payments');
+      } else {
+        console.log('\n⚠️  WARNING: Wallet needs funding!');
+        console.log(balances.errorMessage);
+        console.log('\n💡 Fund your wallet to enable x402 payments:');
+        console.log(`   1. Send ETH (for gas) to: ${this.x402Client.getAddress()}`);
+        console.log(`   2. Send USDC (for payments) to: ${this.x402Client.getAddress()}`);
+        console.log(`   Network: ${USE_MAINNET ? 'Base Mainnet' : 'Base Sepolia'}`);
+      }
+    } catch (error) {
+      console.warn('⚠️  Could not check wallet balances:', error instanceof Error ? error.message : error);
+    }
   }
 
   /**
