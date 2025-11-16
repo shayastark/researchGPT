@@ -678,9 +678,58 @@ Remember: You are operating in November 2025. Any "recent" data should be from 2
       }
     } else {
       // POST/PUT - improve body mapping
-      // Check if input has a generic "data" field that might need remapping
-      if (input.data && Object.keys(input).length === 1) {
-        // If we only have a "data" field, try to infer better parameter names
+      // First, check if the service has an input schema with bodyFields
+      const inputSchema = tool.paymentInfo.outputSchema?.input;
+      const bodyFields = (inputSchema as any)?.bodyFields;
+      
+      if (bodyFields && typeof bodyFields === 'object') {
+        // Service has defined body fields - use them!
+        requestBody = {};
+        const dataValue = input.data;
+        
+        // Map 'data' to the first required field, or first field if none required
+        const fieldEntries = Object.entries(bodyFields) as Array<[string, any]>;
+        const requiredFields = fieldEntries.filter(([_, schema]) => schema.required);
+        const targetField = requiredFields.length > 0 
+          ? requiredFields[0][0] 
+          : fieldEntries[0]?.[0];
+        
+        if (targetField && dataValue !== undefined) {
+          let value = String(dataValue).trim();
+          
+          // Special handling for username fields
+          if (targetField.toLowerCase().includes('username') || targetField.toLowerCase().includes('user')) {
+            if (value.startsWith('@')) {
+              value = value.substring(1);
+            }
+            requestBody[targetField] = value;
+            console.log(`   🔧 Using schema: mapping 'data' to '${targetField}' (removed @ symbol)`);
+          } else if (targetField.toLowerCase().includes('url')) {
+            // For URL fields, check if it's a username and convert to Twitter URL
+            if (!value.startsWith('http')) {
+              // Assume it's a Twitter username, convert to URL
+              const username = value.startsWith('@') ? value.substring(1) : value;
+              value = `https://twitter.com/${username}`;
+            }
+            requestBody[targetField] = value;
+            console.log(`   🔧 Using schema: mapping 'data' to '${targetField}' (converted to URL)`);
+          } else {
+            requestBody[targetField] = value;
+            console.log(`   🔧 Using schema: mapping 'data' to '${targetField}'`);
+          }
+          
+          // Add any other required fields with defaults if available
+          for (const [fieldName, schema] of fieldEntries) {
+            if (fieldName !== targetField && schema.required && schema.default !== undefined) {
+              requestBody[fieldName] = schema.default;
+            }
+          }
+        } else {
+          // Fall back to original input
+          requestBody = input;
+        }
+      } else if (input.data && Object.keys(input).length === 1) {
+        // No schema - try to infer from URL
         const dataValue = input.data;
         const url = tool.service.resource.toLowerCase();
         
@@ -693,6 +742,16 @@ Remember: You are operating in November 2025. Any "recent" data should be from 2
           }
           requestBody = { username };
           console.log(`   🔧 Remapping 'data' to 'username' and removing @ symbol`);
+        } else if (url.includes('social') && url.includes('trust')) {
+          // Social trust services might need URL format
+          let value = String(dataValue).trim();
+          if (!value.startsWith('http')) {
+            // Assume Twitter username, convert to URL
+            const username = value.startsWith('@') ? value.substring(1) : value;
+            value = `https://twitter.com/${username}`;
+          }
+          requestBody = { url: value };
+          console.log(`   🔧 Remapping 'data' to 'url' (converted Twitter username to URL)`);
         } else if (url.includes('email')) {
           requestBody = { email: String(dataValue) };
           console.log(`   🔧 Remapping 'data' to 'email'`);
