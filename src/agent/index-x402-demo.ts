@@ -18,7 +18,8 @@ const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
 // Environment variables - x402 Payments
 const PAYMENT_PRIVATE_KEY = process.env.PAYMENT_PRIVATE_KEY || process.env.PRIVATE_KEY || '';
 const BASE_RPC_URL = process.env.BASE_RPC_URL || 'https://mainnet.base.org';
-const USE_MAINNET = process.env.USE_MAINNET === 'true';
+// Default to mainnet (x402 endpoints are on mainnet)
+const USE_MAINNET = process.env.USE_MAINNET !== 'false';
 
 // Railway volume path for persistent database
 const RAILWAY_VOLUME = process.env.RAILWAY_VOLUME_MOUNT_PATH;

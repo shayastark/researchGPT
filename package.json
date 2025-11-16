@@ -17,6 +17,7 @@
     "service:onchain": "node --loader ts-node/esm --no-warnings=ExperimentalWarning src/services/onchain.ts",
     "services:all": "concurrently \"npm run service:market\" \"npm run service:sentiment\" \"npm run service:onchain\"",
     "generate-credentials": "node --loader ts-node/esm --no-warnings=ExperimentalWarning scripts/generate-credentials.ts",
+    "generate-wallet": "node --loader ts-node/esm --no-warnings=ExperimentalWarning scripts/generate-payment-wallet.ts",
     "initialize-production": "node --loader ts-node/esm --no-warnings=ExperimentalWarning scripts/initialize-agent-production.ts",
     "check-network": "node --loader ts-node/esm --no-warnings=ExperimentalWarning scripts/check-agent-network.ts"
   },

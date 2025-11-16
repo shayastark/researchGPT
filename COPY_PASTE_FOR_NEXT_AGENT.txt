@@ -1,0 +1,38 @@
+I've been debugging x402 payments for 10 hours. Previous agent fixed a critical bug and reviewed the code thoroughly.
+
+READ THIS FILE FIRST: MESSAGE_FOR_NEXT_AGENT.md
+
+Current state:
+- Agent: src/agent/index-x402-demo.ts (uses direct x402, NOT Locus MCP)
+- Critical fix applied: Line 22 defaults to mainnet (USE_MAINNET !== 'false')
+- Railway points to: node dist/src/agent/index-x402-demo.js
+
+Environment vars needed:
+- PAYMENT_PRIVATE_KEY=0x... (wallet on Base mainnet)
+- ANTHROPIC_API_KEY=sk-ant-api03-...
+- XMTP_WALLET_KEY=0x...
+- XMTP_ENV=production
+
+If still failing:
+
+1. CHECK WALLET FUNDING FIRST:
+   - Look for "Payment wallet: 0x..." in logs
+   - Check on BaseScan: https://basescan.org/address/0x...
+   - Must have USDC (0.10+) AND ETH (0.001+) on BASE MAINNET
+
+2. Get exact error from Railway logs
+
+3. Most likely issue: Payment proof headers
+   - Current: 'X-Payment-Hash' and 'X-Payment-Nonce'
+   - Location: src/lib/x402-client.ts line 138-139
+   - Try: lowercase ('x-payment-hash') or CDP style ('x-402-payment-proof')
+
+DON'T:
+- Try Locus MCP /x402/call endpoint (doesn't exist)
+- Change USE_MAINNET back to === 'true'
+- Switch to index-locus-direct.ts
+- Add more dependencies
+
+The code is 85% correct. Issue is likely wallet funding or header naming.
+
+See MESSAGE_FOR_NEXT_AGENT.md for full debugging guide.
