@@ -497,46 +497,112 @@ Provide helpful, accurate information based on REAL DATA from premium sources.`
    */
   private async callX402Endpoint(toolName: string, params: any): Promise<any> {
     try {
-      // Map tool names to APPROVED x402 endpoints in Locus
-      const endpointMap: Record<string, string> = {
-        'ai_research': 'https://www.capminal.ai/api/x402/research',
-        'weather_data': 'http://sbx-x402.sapa-ai.com/weather',
-        'llm_research': 'https://x402.ottoai.services/llm-research',
-        'job_search': 'https://otaku.so/api/messaging/jobs',
-        'crypto_gems': 'https://api.canza.app/token/gems-list',
-        'technical_analysis': 'http://api.ethyai.app/x402/ta'
+      // Map tool names to APPROVED x402 endpoints and their HTTP methods
+      const endpointConfig: Record<string, { url: string; method: 'GET' | 'POST' }> = {
+        'ai_research': { url: 'https://www.capminal.ai/api/x402/research', method: 'POST' },
+        'weather_data': { url: 'http://sbx-x402.sapa-ai.com/weather', method: 'GET' },
+        'llm_research': { url: 'https://x402.ottoai.services/llm-research', method: 'POST' },
+        'job_search': { url: 'https://otaku.so/api/messaging/jobs', method: 'POST' },
+        'crypto_gems': { url: 'https://api.canza.app/token/gems-list', method: 'GET' },
+        'technical_analysis': { url: 'http://api.ethyai.app/x402/ta', method: 'GET' }
       };
 
-      const endpoint = endpointMap[toolName];
-      if (!endpoint) {
+      const config = endpointConfig[toolName];
+      if (!config) {
         throw new Error(`Unknown tool: ${toolName}`);
       }
 
-      console.log(`   💰 Making x402 payment call to: ${endpoint}`);
+      console.log(`   💰 Making x402 payment call to: ${config.url}`);
 
-      // Prepare request body based on parameter names
-      const requestBody: any = {};
-      if (params.symbol) requestBody.symbol = params.symbol;
-      if (params.query) requestBody.query = params.query;
-      if (params.location) requestBody.location = params.location;
-      if (params.category) requestBody.category = params.category;
-
-      // Call the endpoint via Locus MCP
-      // Locus will handle authentication and payment
-      const response = await fetch(endpoint, {
-        method: 'POST',
+      // Route request through Locus MCP server for payment handling
+      const locusEndpoint = `${LOCUS_MCP_SERVER_URL}/x402/proxy`;
+      
+      // Prepare request based on HTTP method
+      const requestOptions: RequestInit = {
+        method: 'POST', // Always POST to Locus proxy
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${LOCUS_API_KEY}`,
-          // Locus MCP headers for payment handling
           'X-Locus-Policy-Group': 'default',
         },
-        body: JSON.stringify(requestBody)
-      });
+        body: JSON.stringify({
+          endpoint: config.url,
+          method: config.method,
+          params: params
+        })
+      };
+
+      // Try calling through Locus MCP proxy first
+      let response = await fetch(locusEndpoint, requestOptions);
+
+      // If Locus proxy doesn't work, fall back to direct call with payment handling
+      if (!response.ok && response.status === 404) {
+        console.log(`   ⚠️  Locus proxy not available, attempting direct x402 call`);
+        
+        // Build URL with query params for GET requests
+        let finalUrl = config.url;
+        if (config.method === 'GET') {
+          const queryParams = new URLSearchParams();
+          if (params.symbol) queryParams.append('ticker', params.symbol);
+          if (params.query) queryParams.append('query', params.query);
+          if (params.location) queryParams.append('location', params.location);
+          if (params.category) queryParams.append('category', params.category);
+          
+          if (queryParams.toString()) {
+            finalUrl += `?${queryParams.toString()}`;
+          }
+        }
+
+        // Prepare request body for POST
+        const requestBody: any = {};
+        if (config.method === 'POST') {
+          if (params.symbol) requestBody.symbol = params.symbol;
+          if (params.query) requestBody.query = params.query;
+          if (params.location) requestBody.location = params.location;
+          if (params.category) requestBody.category = params.category;
+        }
+
+        response = await fetch(finalUrl, {
+          method: config.method,
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${LOCUS_API_KEY}`,
+          },
+          ...(config.method === 'POST' ? { body: JSON.stringify(requestBody) } : {})
+        });
+
+        // Handle 402 Payment Required
+        if (response.status === 402) {
+          const paymentInfo = await response.json();
+          console.log(`   💳 Payment required, retrying with payment header`);
+          
+          // Retry with payment header (Locus should provide this)
+          response = await fetch(finalUrl, {
+            method: config.method,
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${LOCUS_API_KEY}`,
+              'X-PAYMENT': JSON.stringify({
+                apiKey: LOCUS_API_KEY,
+                policyGroup: 'default'
+              }),
+            },
+            ...(config.method === 'POST' ? { body: JSON.stringify(requestBody) } : {})
+          });
+        }
+      }
 
       if (!response.ok) {
         const errorText = await response.text();
         console.error(`   ❌ x402 endpoint error (${response.status}): ${errorText}`);
+        
+        // Handle specific error cases
+        if (response.status === 402) {
+          throw new Error(`Payment required for ${toolName}. Please check your Locus wallet balance and approved endpoints.`);
+        } else if (response.status === 404) {
+          throw new Error(`Endpoint ${toolName} not found. This endpoint may not be available or the URL may be incorrect.`);
+        }
+        
         throw new Error(`Endpoint ${toolName} returned ${response.status}: ${errorText}`);
       }
 
