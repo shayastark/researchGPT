@@ -94,7 +94,7 @@ export class X402OfficialClient {
       }
 
       // Parse response
-      const data = await response.json();
+      const rawData = await response.json();
 
       // Get payment response details if available
       const paymentResponseHeader = response.headers.get('x-payment-response');
@@ -113,8 +113,44 @@ export class X402OfficialClient {
         }
       }
 
+      // Log the response structure for debugging
+      console.log(`   📊 Response structure:`, {
+        type: typeof rawData,
+        isArray: Array.isArray(rawData),
+        keys: typeof rawData === 'object' && rawData !== null ? Object.keys(rawData) : 'N/A',
+        sample: typeof rawData === 'object' && rawData !== null 
+          ? JSON.stringify(rawData).substring(0, 500) 
+          : String(rawData).substring(0, 500),
+      });
+
+      // Extract actual data from common response structures
+      // Many APIs wrap data in fields like 'data', 'result', 'content', 'items', etc.
+      let extractedData: any = rawData;
+      
+      if (typeof rawData === 'object' && rawData !== null && !Array.isArray(rawData)) {
+        // Priority order for data extraction
+        const dataFields = ['data', 'result', 'content', 'items', 'results', 'response', 'body'];
+        const rawDataObj = rawData as Record<string, any>;
+        
+        for (const field of dataFields) {
+          if (rawDataObj[field] !== undefined && rawDataObj[field] !== null) {
+            console.log(`   🔍 Extracting data from '${field}' field`);
+            extractedData = rawDataObj[field];
+            break;
+          }
+        }
+        
+        // If we found data in a nested field, log what we're extracting vs what we're ignoring
+        if (extractedData !== rawData) {
+          const ignoredKeys = Object.keys(rawDataObj).filter(key => !dataFields.includes(key));
+          if (ignoredKeys.length > 0) {
+            console.log(`   ℹ️  Ignoring metadata fields: ${ignoredKeys.join(', ')}`);
+          }
+        }
+      }
+
       console.log(`   ✅ Data received successfully`);
-      return data;
+      return extractedData;
 
     } catch (error) {
       console.error(`   ❌ x402 request failed:`, error);
