@@ -90,6 +90,31 @@ export class X402OfficialClient {
         } catch (e) {
           errorText = 'Unable to read error response';
         }
+        
+        // If we get a 402, x402-fetch should have handled it automatically
+        // This suggests either payment failed or x402-fetch had an issue
+        if (response.status === 402) {
+          console.error(`   ❌ x402-fetch received 402 but didn't complete payment flow`);
+          console.error(`   ❌ This might indicate:`);
+          console.error(`      - Wallet doesn't have sufficient USDC balance`);
+          console.error(`      - Network/RPC connection issue`);
+          console.error(`      - x402-fetch internal error`);
+          
+          // Try to parse the payment requirements for debugging
+          try {
+            const paymentReq = JSON.parse(errorText);
+            if (paymentReq.accepts && paymentReq.accepts[0]) {
+              const req = paymentReq.accepts[0];
+              const amount = Number(req.maxAmountRequired) / 1_000_000; // USDC has 6 decimals
+              console.error(`   💰 Required payment: ${amount} USDC`);
+              console.error(`   💰 Pay to: ${req.payTo}`);
+              console.error(`   💰 Asset: ${req.asset}`);
+            }
+          } catch (e) {
+            // Ignore parse errors
+          }
+        }
+        
         throw new Error(`Request failed: ${response.status} ${response.statusText} - ${errorText}`);
       }
 
@@ -233,7 +258,19 @@ export class X402OfficialClient {
 
     } catch (error) {
       console.error(`   ❌ x402 request failed:`, error);
-      throw new Error(`x402 call failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      
+      // Check if this is a 402 error that x402-fetch should have handled
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (errorMessage.includes('402') || errorMessage.includes('Payment Required')) {
+        console.error(`   ⚠️  x402-fetch should have automatically handled the 402 payment`);
+        console.error(`   ⚠️  Possible causes:`);
+        console.error(`      1. Wallet balance insufficient (check USDC on Base)`);
+        console.error(`      2. RPC connection issue`);
+        console.error(`      3. x402-fetch configuration issue`);
+        console.error(`   💡 Check wallet balance at: https://basescan.org/address/${this.account.address}`);
+      }
+      
+      throw new Error(`x402 call failed: ${errorMessage}`);
     }
   }
 
