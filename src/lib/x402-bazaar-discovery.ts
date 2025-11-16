@@ -182,18 +182,114 @@ export class X402BazaarClient {
 
   /**
    * Get service description for AI tool
+   * Creates a human-readable description that helps the AI understand what the service does
    */
   getServiceDescription(service: X402Service, paymentOption: X402ServiceAccept): string {
     const price = this.formatPrice(paymentOption.maxAmountRequired, 6);
     const assetName = paymentOption.extra?.name || 'USDC';
     
-    let description = `API endpoint: ${service.resource}`;
-    description += ` | Price: $${price} ${assetName} on ${paymentOption.network}`;
+    // Try to infer functionality from URL and metadata
+    const inferredFunction = this.inferServiceFunction(service);
     
+    let description = inferredFunction;
+    description += ` | Cost: $${price} ${assetName}`;
+    
+    // Add metadata if available and useful
     if (service.metadata && Object.keys(service.metadata).length > 0) {
-      description += ` | ${JSON.stringify(service.metadata)}`;
+      const metadataStr = this.formatMetadata(service.metadata);
+      if (metadataStr) {
+        description += ` | ${metadataStr}`;
+      }
     }
     
+    // Add endpoint for reference
+    description += ` | Endpoint: ${service.resource}`;
+    
     return description;
+  }
+
+  /**
+   * Infer what a service does from its URL, path, and metadata
+   */
+  private inferServiceFunction(service: X402Service): string {
+    const url = service.resource.toLowerCase();
+    const path = new URL(service.resource).pathname.toLowerCase();
+    
+    // Check metadata first
+    if (service.metadata) {
+      const metadata = service.metadata;
+      if (metadata.name) return metadata.name;
+      if (metadata.description) return metadata.description;
+      if (metadata.title) return metadata.title;
+    }
+    
+    // Infer from URL patterns
+    const patterns: Array<[RegExp, string]> = [
+      [/weather|forecast|climate/i, 'Get weather information and forecasts for locations'],
+      [/signal|sentiment|analysis|trading/i, 'Get trading signals, market sentiment, or financial analysis'],
+      [/image|generate|create|picture|photo/i, 'Generate or process images'],
+      [/video|sora|create.*video/i, 'Generate or create videos'],
+      [/search|query|find|lookup/i, 'Search for information or data'],
+      [/qr.*code|qrcode/i, 'Generate QR codes'],
+      [/email.*valid|validate.*email/i, 'Validate email addresses'],
+      [/wallet|reputation|address/i, 'Get wallet information or reputation'],
+      [/mint|nft|token/i, 'Mint tokens or NFTs'],
+      [/gif|animated/i, 'Search or generate GIFs'],
+      [/arbitrage|arb.*opportun/i, 'Find arbitrage opportunities'],
+      [/kalshi|prediction|market/i, 'Get prediction market data or categories'],
+      [/twitter|tweet|social/i, 'Get Twitter/X social media data or insights'],
+      [/convert|transform/i, 'Convert or transform data'],
+      [/crawl|scrape|extract/i, 'Crawl, scrape, or extract data from URLs'],
+      [/wait|delay|sleep/i, 'Wait or delay execution'],
+      [/script|code|generate/i, 'Generate scripts or code'],
+      [/health|ping|status/i, 'Check service health or status'],
+      [/roadmap|plan/i, 'Get roadmap or planning information'],
+    ];
+    
+    for (const [pattern, description] of patterns) {
+      if (pattern.test(url) || pattern.test(path)) {
+        return description;
+      }
+    }
+    
+    // Try to infer from path segments
+    const pathSegments = path.split('/').filter(s => s && s !== 'api' && s !== 'x402');
+    if (pathSegments.length > 0) {
+      const lastSegment = pathSegments[pathSegments.length - 1];
+      // Convert snake_case or kebab-case to readable
+      const readable = lastSegment
+        .replace(/[-_]/g, ' ')
+        .replace(/\b\w/g, l => l.toUpperCase());
+      return `Access ${readable} service`;
+    }
+    
+    // Fallback
+    return `Access API service at ${new URL(service.resource).hostname}`;
+  }
+
+  /**
+   * Format metadata into a readable string
+   */
+  private formatMetadata(metadata: Record<string, any>): string {
+    const parts: string[] = [];
+    
+    // Include useful metadata fields
+    const usefulFields = ['description', 'name', 'title', 'category', 'tags', 'version'];
+    for (const field of usefulFields) {
+      if (metadata[field] && typeof metadata[field] === 'string') {
+        parts.push(`${field}: ${metadata[field]}`);
+      }
+    }
+    
+    // Include other string/number fields (but not objects/arrays)
+    for (const [key, value] of Object.entries(metadata)) {
+      if (!usefulFields.includes(key) && 
+          (typeof value === 'string' || typeof value === 'number') &&
+          value.toString().length < 100) {
+        parts.push(`${key}: ${value}`);
+      }
+    }
+    
+    return parts.length > 0 ? parts.join(', ') : '';
   }
 }
