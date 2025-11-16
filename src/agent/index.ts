@@ -3,6 +3,7 @@ import { createUser, createSigner } from '@xmtp/agent-sdk/user';
 import Anthropic from '@anthropic-ai/sdk';
 import express from 'express';
 import dotenv from 'dotenv';
+import { X402Client } from '../lib/x402-client.js';
 
 dotenv.config();
 
@@ -14,6 +15,9 @@ const XMTP_DB_ENCRYPTION_KEY = process.env.XMTP_DB_ENCRYPTION_KEY;
 // Environment variables - AI & Payments
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
 const LOCUS_API_KEY = process.env.LOCUS_API_KEY || '';
+const PRIVATE_KEY = process.env.PRIVATE_KEY || process.env.XMTP_WALLET_KEY || '';
+const BASE_RPC_URL = process.env.BASE_RPC_URL || 'https://sepolia.base.org';
+const USE_MAINNET = process.env.USE_MAINNET === 'true';
 
 // Railway volume path for persistent database
 const RAILWAY_VOLUME = process.env.RAILWAY_VOLUME_MOUNT_PATH;
@@ -28,6 +32,8 @@ class XMTPResearchAgent {
   private agent!: Agent;
   private httpServer: express.Application;
   private serverStartTime: Date;
+  private x402Client?: X402Client;
+  private useLocus: boolean;
 
   constructor() {
     // Validate required environment variables
@@ -37,8 +43,20 @@ class XMTPResearchAgent {
     if (!ANTHROPIC_API_KEY) {
       throw new Error('ANTHROPIC_API_KEY environment variable is required');
     }
-    if (!LOCUS_API_KEY) {
-      throw new Error('LOCUS_API_KEY environment variable is required');
+    // Payment configuration: Locus or direct x402
+    this.useLocus = !!LOCUS_API_KEY;
+    
+    if (!this.useLocus && !PRIVATE_KEY) {
+      throw new Error('Either LOCUS_API_KEY or PRIVATE_KEY is required for payments');
+    }
+    
+    // Initialize x402 client if not using Locus
+    if (!this.useLocus) {
+      this.x402Client = new X402Client({
+        privateKey: PRIVATE_KEY as `0x${string}`,
+        rpcUrl: BASE_RPC_URL,
+        useMainnet: USE_MAINNET,
+      });
     }
 
     this.serverStartTime = new Date();
@@ -51,7 +69,8 @@ class XMTPResearchAgent {
     console.log(`🤖 XMTP Research Agent Configuration:`);
     console.log(`   XMTP Network: ${XMTP_ENV}`);
     console.log(`   AI: Claude (Anthropic)`);
-    console.log(`   Payments: Locus x402 (6 premium data sources)`);
+    console.log(`   Payments: ${this.useLocus ? 'Locus MCP' : 'Direct x402'}`);
+    console.log(`   Blockchain: Base ${USE_MAINNET ? 'Mainnet' : 'Sepolia'}`);
     console.log(`   HTTP Port: ${PORT}`);
     
     // Warning if on dev network
@@ -512,13 +531,12 @@ Provide helpful, accurate information based on REAL DATA from premium sources wh
   }
 
   /**
-   * Call x402 endpoint via Locus MCP
-   * This is where payments are actually made
+   * Call x402 endpoint with payment handling
+   * Supports both Locus MCP and direct x402 payment
    */
   private async callX402Endpoint(toolName: string, params: any): Promise<any> {
     try {
-      // Map tool names to APPROVED x402 endpoints and their HTTP methods
-      // Note: Using HTTPS to avoid redirect issues
+      // Map tool names to x402 endpoints and their HTTP methods
       const endpointConfig: Record<string, { url: string; method: 'GET' | 'POST' }> = {
         'ai_research': { url: 'https://www.capminal.ai/api/x402/research', method: 'POST' },
         'weather_data': { url: 'https://sbx-x402.sapa-ai.com/weather', method: 'GET' },
@@ -534,83 +552,119 @@ Provide helpful, accurate information based on REAL DATA from premium sources wh
       }
 
       console.log(`   💰 Making x402 payment call to: ${config.url}`);
+      console.log(`   📊 Payment method: ${this.useLocus ? 'Locus MCP' : 'Direct on-chain'}`);
 
-      // Build URL with query params for GET requests
-      let finalUrl = config.url;
-      if (config.method === 'GET') {
-        const queryParams = new URLSearchParams();
-        if (params.symbol) queryParams.append('ticker', params.symbol);
-        if (params.query) queryParams.append('query', params.query);
-        if (params.location) queryParams.append('location', params.location);
-        if (params.category) queryParams.append('category', params.category);
-        
-        if (queryParams.toString()) {
-          finalUrl += `?${queryParams.toString()}`;
-        }
+      if (this.useLocus) {
+        // Use Locus MCP for payment orchestration
+        return await this.callViaLocus(config.url, config.method, params);
+      } else if (this.x402Client) {
+        // Use direct x402 payment client
+        return await this.callViaX402(config.url, config.method, params);
+      } else {
+        throw new Error('No payment method configured');
       }
-
-      // Prepare request body for POST
-      const requestBody: any = {};
-      if (config.method === 'POST') {
-        if (params.symbol) requestBody.symbol = params.symbol;
-        if (params.query) requestBody.query = params.query;
-        if (params.location) requestBody.location = params.location;
-        if (params.category) requestBody.category = params.category;
-      }
-
-      // Make direct call to x402 endpoint
-      let response = await fetch(finalUrl, {
-        method: config.method,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${LOCUS_API_KEY}`,
-          'Accept': 'application/json',
-        },
-        ...(config.method === 'POST' ? { body: JSON.stringify(requestBody) } : {})
-      });
-
-      // Handle 402 Payment Required - endpoint needs payment
-      if (response.status === 402) {
-        const paymentInfo: any = await response.json();
-        console.log(`   💳 Payment required for ${toolName}`);
-        console.log(`   📋 Payment info:`, JSON.stringify(paymentInfo, null, 2));
-        
-        // Return payment info as error for now
-        throw new Error(`Payment required for ${toolName}. Endpoint requires x402 payment. Payment details: ${JSON.stringify(paymentInfo.accepts?.[0] || paymentInfo)}`);
-      }
-
-      if (!response.ok) {
-        let errorText = '';
-        try {
-          errorText = await response.text();
-        } catch (e) {
-          errorText = 'Unable to read error response';
-        }
-        console.error(`   ❌ x402 endpoint error (${response.status}): ${errorText}`);
-        
-        // Handle specific error cases
-        if (response.status === 402) {
-          throw new Error(`Payment required for ${toolName}. Please check your Locus wallet balance and approved endpoints.`);
-        } else if (response.status === 404) {
-          throw new Error(`Endpoint ${toolName} not found. This endpoint may not be available or the URL may be incorrect.`);
-        } else if (response.status === 405) {
-          throw new Error(`Endpoint ${toolName} does not support the ${config.method} method. The endpoint URL or configuration may be incorrect.`);
-        } else if (response.status >= 500) {
-          throw new Error(`Endpoint ${toolName} server error (${response.status}). The service may be temporarily unavailable.`);
-        }
-        
-        throw new Error(`Endpoint ${toolName} returned ${response.status}: ${errorText}`);
-      }
-
-      const data = await response.json();
-      console.log(`   ✅ Data received from ${toolName}`);
-      
-      return data;
 
     } catch (error) {
       console.error(`   ❌ Error calling x402 endpoint:`, error);
       throw error;
     }
+  }
+
+  /**
+   * Call endpoint via Locus MCP server
+   */
+  private async callViaLocus(url: string, method: 'GET' | 'POST', params: any): Promise<any> {
+    // Prepare parameters
+    const queryParams: Record<string, string> = {};
+    const bodyParams: any = {};
+    
+    if (params.symbol) {
+      queryParams.ticker = params.symbol;
+      bodyParams.symbol = params.symbol;
+    }
+    if (params.query) {
+      queryParams.query = params.query;
+      bodyParams.query = params.query;
+    }
+    if (params.location) {
+      queryParams.location = params.location;
+      bodyParams.location = params.location;
+    }
+    if (params.category) {
+      queryParams.category = params.category;
+      bodyParams.category = params.category;
+    }
+
+    try {
+      // Call Locus MCP proxy endpoint
+      const locusMcpResponse = await fetch(`${LOCUS_MCP_SERVER_URL}/x402/call`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${LOCUS_API_KEY}`,
+        },
+        body: JSON.stringify({
+          endpoint: url,
+          method: method,
+          params: method === 'GET' ? queryParams : bodyParams,
+        }),
+      });
+
+      if (!locusMcpResponse.ok) {
+        const errorText = await locusMcpResponse.text().catch(() => 'Unknown error');
+        console.error(`   ❌ Locus MCP error (${locusMcpResponse.status}): ${errorText}`);
+        throw new Error(`Locus MCP returned ${locusMcpResponse.status}: ${errorText}`);
+      }
+
+      const data = await locusMcpResponse.json();
+      console.log(`   ✅ Data received via Locus MCP`);
+      return data;
+      
+    } catch (error) {
+      // If Locus MCP fails, fall back to direct x402 client
+      console.warn(`   ⚠️  Locus MCP failed, falling back to direct x402...`);
+      
+      if (this.x402Client) {
+        return await this.callViaX402(url, method, params);
+      }
+      
+      throw error;
+    }
+  }
+
+  /**
+   * Call endpoint via direct x402 payment protocol
+   */
+  private async callViaX402(url: string, method: 'GET' | 'POST', params: any): Promise<any> {
+    if (!this.x402Client) {
+      throw new Error('x402 client not initialized');
+    }
+
+    const queryParams: Record<string, string> = {};
+    const bodyParams: any = {};
+    
+    if (params.symbol) {
+      queryParams.ticker = params.symbol;
+      bodyParams.symbol = params.symbol;
+    }
+    if (params.query) {
+      queryParams.query = params.query;
+      bodyParams.query = params.query;
+    }
+    if (params.location) {
+      queryParams.location = params.location;
+      bodyParams.location = params.location;
+    }
+    if (params.category) {
+      queryParams.category = params.category;
+      bodyParams.category = params.category;
+    }
+
+    return await this.x402Client.callEndpoint(url, {
+      method,
+      body: method === 'POST' ? bodyParams : undefined,
+      queryParams: method === 'GET' ? queryParams : undefined,
+    });
   }
 
 }
