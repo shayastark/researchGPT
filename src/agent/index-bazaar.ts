@@ -1,6 +1,11 @@
 import { Agent, filter, validHex } from '@xmtp/agent-sdk';
 import { createUser, createSigner } from '@xmtp/agent-sdk/user';
 import { ReactionCodec } from '@xmtp/content-type-reaction';
+import {
+  AttachmentCodec,
+  RemoteAttachmentCodec,
+  ContentTypeRemoteAttachment,
+} from '@xmtp/content-type-remote-attachment';
 import OpenAI from 'openai';
 import express from 'express';
 import cors from 'cors';
@@ -375,8 +380,12 @@ class XMTPBazaarAgent {
       // Create agent with proper configuration
       this.agent = await Agent.create(signer, {
         env: XMTP_ENV,
-        // Register reaction codec for emoji reactions
-        codecs: [new ReactionCodec()],
+        // Register content type codecs
+        codecs: [
+          new ReactionCodec(),
+          new AttachmentCodec(),
+          new RemoteAttachmentCodec(),
+        ],
         // Database path - use Railway volume if available, otherwise local
         dbPath: RAILWAY_VOLUME 
           ? (inboxId) => `${RAILWAY_VOLUME}/${XMTP_ENV}-${inboxId.slice(0, 8)}.db3`
@@ -481,6 +490,68 @@ class XMTPBazaarAgent {
       }
     });
 
+    // Listen for remote attachments
+    this.agent.on('attachment', async (ctx) => {
+      // Filter out messages from self
+      if (filter.fromSelf(ctx.message, ctx.client)) {
+        return;
+      }
+
+      // Get sender address
+      let senderAddress = 'unknown';
+      if (filter.isDM(ctx.conversation)) {
+        senderAddress = ctx.conversation.peerInboxId;
+      } else if (filter.isGroup(ctx.conversation)) {
+        senderAddress = ctx.message.senderInboxId;
+      }
+
+      console.log(`\n${'='.repeat(80)}`);
+      console.log(`📎 Received attachment from ${senderAddress}`);
+      console.log('='.repeat(80));
+
+      try {
+        // Check if it's a remote attachment
+        if (ctx.usesCodec(RemoteAttachmentCodec)) {
+          console.log('   📥 Loading remote attachment...');
+          
+          // Load and decrypt the remote attachment
+          const attachment = await RemoteAttachmentCodec.load(
+            ctx.message.content,
+            ctx.client
+          );
+
+          console.log(`   ✅ Attachment loaded:`);
+          console.log(`      Filename: ${attachment.filename}`);
+          console.log(`      MIME Type: ${attachment.mimeType}`);
+          console.log(`      Size: ${attachment.data.byteLength} bytes`);
+
+          // Send acknowledgment
+          await ctx.sendText(
+            `📎 Received your attachment: ${attachment.filename} (${attachment.mimeType}, ${(attachment.data.byteLength / 1024).toFixed(2)} KB)\n\n` +
+            `I can process images, documents, and other file types. What would you like me to do with this file?`
+          );
+
+          // TODO: Add processing logic based on file type
+          // - Images: Could use vision models to analyze
+          // - PDFs: Extract text and process
+          // - Text files: Read and analyze content
+          // - etc.
+
+        } else {
+          // Handle local attachments (if any)
+          console.log('   📎 Local attachment received');
+          await ctx.sendText('📎 I received your attachment. Remote attachment processing is preferred for better compatibility.');
+        }
+      } catch (error) {
+        console.error('❌ Error handling attachment:', error);
+        await ctx.sendText(
+          `❌ Error processing your attachment: ${
+            error instanceof Error ? error.message : 'Unknown error'
+          }`
+        );
+      }
+    });
+
     // Handle errors
     this.agent.on('unhandledError', (error) => {
       console.error('❌ Unhandled agent error:', error);
@@ -513,8 +584,9 @@ class XMTPBazaarAgent {
         console.log('   Use a dev client or switch to production');
       }
       
-      console.log(`\n💡 This agent uses CDP x402 Bazaar for dynamic service discovery!\n`);
-      console.log(`🎯 Discovered Services (${this.discoveredTools.size}):`);
+      console.log(`\n💡 This agent uses CDP x402 Bazaar for dynamic service discovery!`);
+      console.log(`📎 Supports attachments and reactions (🧐)`);
+      console.log(`\n🎯 Discovered Services (${this.discoveredTools.size}):`);
       
       for (const [name, tool] of this.discoveredTools) {
         const price = this.bazaarClient.formatPrice(tool.paymentInfo.maxAmountRequired, 6);
@@ -522,7 +594,8 @@ class XMTPBazaarAgent {
         console.log(`     ${tool.service.resource}`);
       }
       
-      console.log('\n📝 Try asking me to use any of these services!\n');
+      console.log('\n📝 Try asking me to use any of these services!');
+      console.log('📎 Send me attachments and I\'ll process them!');
       console.log('='.repeat(80));
     });
 
