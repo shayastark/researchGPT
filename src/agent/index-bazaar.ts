@@ -653,16 +653,22 @@ CURRENT DATE: ${today}
 IMPORTANT GUIDELINES:
 1. Only use paid tools when the user explicitly requests data, research, or information that requires calling an API
 2. If the user asks ABOUT the services, protocol, or capabilities, answer directly without calling tools
-3. When filling date parameters (from_date, to_date, etc.):
+3. **CRITICAL - Service Selection**: Only use services that match the query domain:
+   - For local business/restaurant queries: DO NOT use crypto/blockchain news services
+   - For general research: Use general research services, not crypto-specific ones
+   - For crypto/trading queries: Use crypto/blockchain services
+   - If no appropriate service exists, inform the user rather than using an irrelevant service
+4. When filling date parameters (from_date, to_date, etc.):
    - For "latest" or "recent" news/data: Use ${sevenDaysAgo} to ${today} (last 7 days)
    - For "current" information: Use ${thirtyDaysAgo} to ${today} (last 30 days)
    - NEVER use dates from 2023 or earlier unless explicitly requested
    - Always use YYYY-MM-DD format
-4. Use appropriate, recent date ranges that match the user's intent
-5. Each tool call costs money, so only use them when necessary
+5. Use appropriate, recent date ranges that match the user's intent
+6. Each tool call costs money, so only use them when necessary
 
 CRITICAL: When you use any tool (all tools are x402-paid services):
 - ALWAYS acknowledge in your response that you retrieved data using x402 protocol
+- **VALIDATE RESULTS**: If the tool returns data that doesn't match the query (e.g., crypto news for a local business query), explicitly tell the user the service returned irrelevant data
 - If the tool returns minimal or placeholder data (like just a Twitter link), explain this to the user
 - If asked whether you used x402, you MUST answer truthfully - if you called any tool, you used x402
 - Be transparent about what data you received and how you're using it
@@ -720,18 +726,38 @@ Remember: You are operating in November 2025. Any "recent" data should be from 2
 
             console.log(`      ✅ Success`);
             
+            // Validate result relevance to query
+            const resultStr = typeof result === 'string' ? result : JSON.stringify(result);
+            const queryLower = userQuery.toLowerCase();
+            const resultLower = resultStr.toLowerCase();
+            
+            // Check if result seems irrelevant (crypto/blockchain data for non-crypto queries)
+            const isCryptoQuery = /crypto|blockchain|bitcoin|ethereum|defi|token|nft|trading|base|coin/i.test(queryLower);
+            const isCryptoResult = /crypto|blockchain|bitcoin|ethereum|defi|token|nft|trading|base|coin|sentiment.*bullish|sentiment.*bearish|protocol|decentralized/i.test(resultLower);
+            const isLocalBusinessQuery = /bar|restaurant|cafe|shop|store|local|oakland|san francisco|city|neighborhood/i.test(queryLower);
+            
+            let validationNote = '';
+            if (!isCryptoQuery && isCryptoResult && isLocalBusinessQuery) {
+              validationNote = `\n\n⚠️ WARNING: This service returned crypto/blockchain data, but the query is about local businesses. The results may not be relevant.`;
+              console.log(`   ⚠️  Result validation: Service returned crypto data for local business query`);
+            } else if (!isCryptoQuery && isCryptoResult) {
+              validationNote = `\n\n⚠️ WARNING: This service returned crypto/blockchain data, but the query is not crypto-related. The results may not be relevant.`;
+              console.log(`   ⚠️  Result validation: Service returned crypto data for non-crypto query`);
+            }
+            
             // Add metadata to indicate this came from x402
             const resultWithMetadata = {
               _x402_source: true,
               _service_name: toolCall.function.name,
               _data: result,
+              _validation_note: validationNote || undefined,
             };
             
             messages.push({
               role: 'tool',
               tool_call_id: toolCall.id,
               content: typeof result === 'string' 
-                ? `[x402 data from ${toolCall.function.name}] ${result}`
+                ? `[x402 data from ${toolCall.function.name}]${validationNote}\n\n${result}`
                 : JSON.stringify(resultWithMetadata),
             });
           } catch (error) {
