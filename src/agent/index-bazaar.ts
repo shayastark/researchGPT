@@ -519,9 +519,24 @@ class XMTPBazaarAgent {
           const schema = paramSchema as any;
           let description = schema.description || `${paramName} parameter`;
           
-          // Add date guidance for date-related parameters
-          if (paramName.includes('date') || paramName.includes('time')) {
-            description += ` (Use format YYYY-MM-DD. For recent/current data, use dates from the last 30 days. Today is ${new Date().toISOString().split('T')[0]})`;
+          // Make descriptions succinct (max 150 chars)
+          if (description.length > 150) {
+            description = description.substring(0, 147) + '...';
+          }
+          
+          // Add format hints for common parameter types (succinctly)
+          if (paramName.toLowerCase().includes('date') || paramName.toLowerCase().includes('time')) {
+            if (!description.toLowerCase().includes('format') && !description.toLowerCase().includes('timestamp')) {
+              description += ` (YYYY-MM-DD format)`;
+            }
+          } else if (paramName.toLowerCase().includes('query') || paramName.toLowerCase().includes('search')) {
+            if (!description.toLowerCase().includes('search') && !description.toLowerCase().includes('query')) {
+              description += ` (search term or query string)`;
+            }
+          } else if (paramName.toLowerCase().includes('limit')) {
+            if (!description.toLowerCase().includes('number') && !description.toLowerCase().includes('integer')) {
+              description += ` (integer, max results to return)`;
+            }
           }
           
           properties[paramName] = {
@@ -536,17 +551,60 @@ class XMTPBazaarAgent {
         // Fallback to generic query parameter
         properties.query = {
           type: 'string',
-          description: 'Query parameter for the API request',
+          description: 'Query or search term for the API request',
         };
         required.push('query');
       } else {
-        // POST/PUT - use body data
-        // Note: We'll remap generic "data" field to appropriate parameter names in executeDiscoveredService
-        properties.data = {
-          type: 'string',
-          description: 'Data to send to the API (for Twitter services, provide username with or without @ symbol)',
-        };
-        required.push('data');
+        // POST/PUT - check if service has bodyFields schema
+        const bodyFields = (inputSchema as any)?.bodyFields;
+        
+        if (bodyFields && typeof bodyFields === 'object' && Object.keys(bodyFields).length > 0) {
+          // Use the actual bodyFields schema from the service
+          for (const [fieldName, fieldSchema] of Object.entries(bodyFields)) {
+            const schema = fieldSchema as any;
+            let description = schema.description || `${fieldName} parameter`;
+            
+            // Make descriptions succinct but clear
+            if (description.length > 150) {
+              description = description.substring(0, 147) + '...';
+            }
+            
+            // Add format hints for common field types
+            if (fieldName.toLowerCase().includes('username') || fieldName.toLowerCase().includes('user')) {
+              if (!description.includes('@')) {
+                description += ' (username without @ symbol)';
+              }
+            } else if (fieldName.toLowerCase().includes('url')) {
+              if (!description.includes('http')) {
+                description += ' (full URL, e.g., https://twitter.com/username)';
+              }
+            } else if (fieldName.toLowerCase().includes('date')) {
+              if (!description.includes('format')) {
+                description += ' (Unix timestamp)';
+              }
+            } else if (fieldName.toLowerCase().includes('limit')) {
+              if (!description.includes('number')) {
+                description += ' (integer, default if not specified)';
+              }
+            }
+            
+            properties[fieldName] = {
+              type: schema.type || 'string',
+              description,
+            };
+            
+            if (schema.required) {
+              required.push(fieldName);
+            }
+          }
+        } else {
+          // Fallback: generic data field (will be remapped in executeDiscoveredService)
+          properties.data = {
+            type: 'string',
+            description: 'Data to send to the API. Format depends on service type (username, URL, query, etc.)',
+          };
+          required.push('data');
+        }
       }
       
       return {
