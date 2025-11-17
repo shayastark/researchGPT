@@ -998,11 +998,32 @@ Remember: You are operating in November 2025. Any "recent" data should be from 2
         const dataValue = input.data;
         
         // Map 'data' to the first required field, or first field if none required
+        // Prioritize common parameter names: bias, query, data, input
         const fieldEntries = Object.entries(bodyFields) as Array<[string, any]>;
         const requiredFields = fieldEntries.filter(([_, schema]) => schema.required);
-        const targetField = requiredFields.length > 0 
-          ? requiredFields[0][0] 
-          : fieldEntries[0]?.[0];
+        
+        // Priority order for parameter names (most specific first)
+        const priorityFields = ['bias', 'query', 'input', 'data', 'text', 'prompt'];
+        
+        let targetField: string | undefined;
+        
+        // First, try to find a priority field in required fields
+        if (requiredFields.length > 0) {
+          const priorityRequired = requiredFields.find(([name]) => 
+            priorityFields.includes(name.toLowerCase())
+          );
+          if (priorityRequired) {
+            targetField = priorityRequired[0];
+          } else {
+            targetField = requiredFields[0][0];
+          }
+        } else {
+          // No required fields - try to find a priority field in all fields
+          const priorityField = fieldEntries.find(([name]) => 
+            priorityFields.includes(name.toLowerCase())
+          );
+          targetField = priorityField ? priorityField[0] : fieldEntries[0]?.[0];
+        }
         
         if (targetField && dataValue !== undefined) {
           let value = String(dataValue).trim();
@@ -1068,6 +1089,14 @@ Remember: You are operating in November 2025. Any "recent" data should be from 2
         } else if (url.includes('query') || url.includes('search')) {
           requestBody = { query: String(dataValue) };
           console.log(`   🔧 Remapping 'data' to 'query'`);
+        } else if (url.includes('bias') || toolName.toLowerCase().includes('bias')) {
+          // Bias signals services expect "bias" parameter
+          requestBody = { bias: String(dataValue) };
+          console.log(`   🔧 Remapping 'data' to 'bias' (detected bias service)`);
+        } else if (url.includes('signal') || toolName.toLowerCase().includes('signal')) {
+          // Signal services might expect "bias", "query", or "data" - try "bias" first for signals
+          requestBody = { bias: String(dataValue) };
+          console.log(`   🔧 Remapping 'data' to 'bias' (detected signal service)`);
         } else {
           // Keep as-is but log it
           console.log(`   ⚠️  Using generic 'data' field - API might expect different parameter name`);
