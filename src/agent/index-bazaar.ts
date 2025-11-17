@@ -794,6 +794,9 @@ IMPORTANT GUIDELINES:
    - For local business/restaurant queries: DO NOT use crypto/blockchain news services
    - For general research: Use general research services, not crypto-specific ones
    - For crypto/trading queries: Use crypto/blockchain services
+   - **For image generation**: ONLY use services with "image", "generate", "picture", "photo" in the name/URL - DO NOT use music, video, or text generation services
+   - **For music generation**: ONLY use services with "music", "audio", "sound" in the name/URL
+   - **For video generation**: ONLY use services with "video", "sora", "create.*video" in the name/URL
    - If no appropriate service exists, inform the user rather than using an irrelevant service
 4. **Choosing Between Similar Services**: When multiple similar services exist (e.g., multiple trading signal services):
    - Prefer more specific services over generic ones (e.g., "current/latest signals" for real-time data, "bias-optimized signals" for trading strategies)
@@ -808,7 +811,10 @@ IMPORTANT GUIDELINES:
      * If a "bias-optimized" service fails because it expects numeric input, try a "current" or "latest" service instead
      * If a service fails due to parameter mismatch, look for services with different parameter names
      * If a service is unavailable, try another similar service
-     * **For image generation**: If a model ID is invalid, try again with a different model (e.g., "dall-e-3", "stable-diffusion", "midjourney", or omit the model parameter to use default)
+     * **For image generation**: 
+       - If a model ID is invalid, try again with a different model (e.g., "dall-e-3", "stable-diffusion", "midjourney", or omit the model parameter to use default)
+       - If a service returns a text prompt instead of an actual image (no image URL or base64 data), try a different image generation service - the user wants an actual image, not a prompt
+       - DO NOT use music generation services for image requests - check the service name/URL for "image", "generate", "picture", "photo"
    - **Always attempt at least 2-3 different services** before concluding no service is available
    - Only tell the user "no service available" after trying multiple alternatives
    - **For model parameters**: If a service has a "model" parameter, check the tool description for valid options. If unsure, try common model names or omit the parameter to use the service's default model
@@ -903,6 +909,24 @@ Remember: You are operating in November 2025. Any "recent" data should be from 2
                 this.discoveredTools.delete(toolCall.function.name);
                 console.log(`   🚫 Service marked as bad and removed: ${serviceUrl}`);
                 console.log(`      Reason: ${resultObj._warning || 'Returns placeholder data'}`);
+              }
+              
+              // Check if image generation service returned a text prompt instead of an image
+              const isImageQuery = /image|picture|photo|generate.*image|create.*image/i.test(userQuery);
+              const resultStr = typeof result === 'string' ? result : JSON.stringify(result);
+              const hasImageUrl = /https?:\/\/[^\s]+\.(jpg|jpeg|png|gif|webp|svg)/i.test(resultStr);
+              const hasImageData = /data:image|base64.*image|image.*base64/i.test(resultStr);
+              const looksLikePrompt = /prompt|description|visual prompt|you can use|where to use/i.test(resultStr);
+              
+              if (isImageQuery && !hasImageUrl && !hasImageData && looksLikePrompt) {
+                // Service returned a prompt instead of an actual image
+                const serviceUrl = tool.service.resource;
+                this.serviceQuality.set(serviceUrl, {
+                  isBad: false, // Not bad, just returns prompts not images
+                  reason: 'Returns text prompts instead of generated images'
+                });
+                console.log(`   ⚠️  Service returns prompts, not images: ${serviceUrl}`);
+                console.log(`      This service provides prompts for other tools, not direct image generation.`);
               }
             }
 
