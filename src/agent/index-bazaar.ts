@@ -515,10 +515,18 @@ class XMTPBazaarAgent {
           console.log('   📥 Loading remote attachment...');
           
           // Load and decrypt the remote attachment
-          const attachment = await RemoteAttachmentCodec.load(
+          const attachment: {
+            filename: string;
+            mimeType: string;
+            data: Uint8Array;
+          } = await RemoteAttachmentCodec.load(
             ctx.message.content,
             ctx.client
-          );
+          ) as {
+            filename: string;
+            mimeType: string;
+            data: Uint8Array;
+          };
 
           console.log(`   ✅ Attachment loaded:`);
           console.log(`      Filename: ${attachment.filename}`);
@@ -540,15 +548,33 @@ class XMTPBazaarAgent {
         } else {
           // Handle local attachments (if any)
           console.log('   📎 Local attachment received');
-          await ctx.sendText('📎 I received your attachment. Remote attachment processing is preferred for better compatibility.');
+          // Send response using conversation if available
+          try {
+            const ctxAny = ctx as any;
+            if (ctxAny.sendText && typeof ctxAny.sendText === 'function') {
+              await ctxAny.sendText('📎 I received your attachment. Remote attachment processing is preferred for better compatibility.');
+            } else if (ctxAny.conversation && ctxAny.conversation.send) {
+              await ctxAny.conversation.send('📎 I received your attachment. Remote attachment processing is preferred for better compatibility.');
+            }
+          } catch (e) {
+            // Fallback if sendText doesn't work in this context
+            console.warn('   ⚠️  Could not send text response for local attachment:', e);
+          }
         }
       } catch (error) {
         console.error('❌ Error handling attachment:', error);
-        await ctx.sendText(
-          `❌ Error processing your attachment: ${
-            error instanceof Error ? error.message : 'Unknown error'
-          }`
-        );
+        try {
+          const ctxAny = ctx as any;
+          if (ctxAny.sendText && typeof ctxAny.sendText === 'function') {
+            await ctxAny.sendText(
+              `❌ Error processing your attachment: ${
+                error instanceof Error ? error.message : 'Unknown error'
+              }`
+            );
+          }
+        } catch (e) {
+          console.warn('   ⚠️  Could not send error message:', e);
+        }
       }
     });
 
