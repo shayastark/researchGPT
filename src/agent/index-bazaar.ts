@@ -798,15 +798,25 @@ IMPORTANT GUIDELINES:
 4. **Choosing Between Similar Services**: When multiple similar services exist (e.g., multiple trading signal services):
    - Prefer more specific services over generic ones (e.g., "current/latest signals" for real-time data, "bias-optimized signals" for trading strategies)
    - Match the service type to the query intent (e.g., "current" for "what's happening now", "bias-optimized" for "best trading opportunities")
+   - **IMPORTANT**: For text queries (like "Base ecosystem tokens"), use services with "current", "latest", or "news" in the name - these accept text input
+   - **IMPORTANT**: Services with "bias-optimized" typically expect numeric bias scores (like 0.5, -0.3), NOT text queries - avoid these for text queries
    - If services are equivalent, prefer the cheaper one to save costs
    - Read the full tool description including cost and endpoint to make informed choices
-5. When filling date parameters (from_date, to_date, etc.):
+5. **CRITICAL - When a Service Fails**: If a tool call fails with an error:
+   - **DO NOT give up** - you have access to many services (66+ available)
+   - **Try a different service** that matches the query type:
+     * If a "bias-optimized" service fails because it expects numeric input, try a "current" or "latest" service instead
+     * If a service fails due to parameter mismatch, look for services with different parameter names
+     * If a service is unavailable, try another similar service
+   - **Always attempt at least 2-3 different services** before concluding no service is available
+   - Only tell the user "no service available" after trying multiple alternatives
+6. When filling date parameters (from_date, to_date, etc.):
    - For "latest" or "recent" news/data: Use ${sevenDaysAgo} to ${today} (last 7 days)
    - For "current" information: Use ${thirtyDaysAgo} to ${today} (last 30 days)
    - NEVER use dates from 2023 or earlier unless explicitly requested
    - Always use YYYY-MM-DD format
-6. Use appropriate, recent date ranges that match the user's intent
-7. Each tool call costs money, so only use them when necessary
+   - Use appropriate, recent date ranges that match the user's intent
+8. Each tool call costs money, so only use them when necessary
 
 CRITICAL: When you use any tool (all tools are x402-paid services):
 - ALWAYS acknowledge in your response that you retrieved data using x402 protocol
