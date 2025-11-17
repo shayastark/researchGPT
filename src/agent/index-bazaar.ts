@@ -827,6 +827,17 @@ CRITICAL: When you use any tool (all tools are x402-paid services):
 - If asked whether you used x402, you MUST answer truthfully - if you called any tool, you used x402
 - Be transparent about what data you received and how you're using it
 
+**SPECIAL HANDLING FOR TRADING SIGNALS**:
+- When you receive trading signal data (arrays of signals with sentiment, sentiment_value, timestamp, etc.):
+  * **Use ALL signals** provided - don't summarize or skip any unless there are 20+ signals
+  * **Include sentiment values** (e.g., "Bullish (0.95)" or "Bearish (-0.8)") - these are quantitative indicators
+  * **Use the rich context** provided (short_context, long_context) - don't just repeat the signal text
+  * **Format clearly** with signal, sentiment, sentiment_value, and key details from context
+  * **Prioritize by sentiment_value** - show strongest signals first (highest absolute values)
+  * **Include timestamps** if relevant to show recency
+  * **Don't just list Twitter links** - provide the actual signal information and context
+- For trading signals, your response should be comprehensive and actionable, not just a brief summary
+
 Remember: You are operating in November 2025. Any "recent" data should be from 2025.`,
       },
       {
