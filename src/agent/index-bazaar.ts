@@ -969,16 +969,11 @@ Remember: You are operating in November 2025. Any "recent" data should be from 2
     const method = (inputSchema?.method || 'GET').toUpperCase() as 'GET' | 'POST';
     const price = parseFloat(this.bazaarClient.formatPrice(tool.paymentInfo.maxAmountRequired, 6));
     
-    // Determine which client to use based on price
-    // x402-fetch has a limit around $0.20, so use custom client for higher prices
-    const useCustomClient = price > 0.20;
-    const clientName = useCustomClient ? 'custom X402Client' : 'official x402-fetch';
-
     console.log(`\n   💰 Executing discovered service via x402:`);
     console.log(`      Service: ${tool.service.resource}`);
     console.log(`      Method: ${method}`);
     console.log(`      Expected price: ~${price.toFixed(6)} USDC`);
-    console.log(`      Using ${clientName} (${useCustomClient ? 'no payment limit' : 'automatic 402 handling'})`);
+    console.log(`      Using official x402-fetch (proper EIP-3009 implementation)`);
     
     // Build query parameters from input
     let queryParams: Record<string, string> = {};
@@ -1081,96 +1076,44 @@ Remember: You are operating in November 2025. Any "recent" data should be from 2
     }
     
     try {
-      let result: any;
-      
-      if (useCustomClient && this.x402Client) {
-        // Use custom client for high-priced services (no payment limit)
-        if (method === 'GET') {
-          result = await this.x402Client.callWithPaymentInfo(
-            tool.service.resource,
-            tool.paymentInfo,
-            {
-              method,
-              queryParams,
-            }
-          );
-        } else {
-          result = await this.x402Client.callWithPaymentInfo(
-            tool.service.resource,
-            tool.paymentInfo,
-            {
-              method,
-              body: requestBody,
-            }
-          );
-        }
-        console.log(`      ✅ Data received via custom x402 client (no payment limit)`);
-      } else if (this.x402OfficialClient) {
-        // Use official client for standard services (automatic payment handling)
-        result = await this.x402OfficialClient.callEndpoint(
-          tool.service.resource,
-          {
-            method,
-            ...(method === 'POST' ? { body: requestBody } : {}),
-            ...(method === 'GET' && Object.keys(queryParams).length > 0 ? { queryParams } : {}),
-          }
-        );
-        console.log(`      ✅ Data received via official x402 protocol`);
-      } else {
-        throw new Error('No x402 payment client available');
+      // Always use official x402-fetch client - it properly implements EIP-3009
+      // The custom client doesn't implement the x402 protocol correctly (uses simple transfer instead of transferWithAuthorization)
+      if (!this.x402OfficialClient) {
+        throw new Error('x402 payment client not configured');
       }
+      
+      const result = await this.x402OfficialClient.callEndpoint(
+        tool.service.resource,
+        {
+          method,
+          ...(method === 'POST' ? { body: requestBody } : {}),
+          ...(method === 'GET' && Object.keys(queryParams).length > 0 ? { queryParams } : {}),
+        }
+      );
+      
+      console.log(`      ✅ Data received via official x402 protocol`);
       
       return result;
     } catch (error: any) {
       // Improve error messages for users
       const errorMessage = error?.message || String(error);
       
-      // Check for payment amount limit errors (x402-fetch has a maximum payment limit)
-      // This should only happen if we're using the official client for a service > $0.20
-      // (which shouldn't happen with our routing, but keep as safety net)
-      if ((errorMessage.includes('Payment amount exceeds maximum allowed') || 
-          errorMessage.includes('exceeds maximum allowed')) && !useCustomClient) {
-        // If we hit this error, it means routing failed - try custom client as fallback
-        if (this.x402Client && price > 0.20) {
-          console.log(`   🔄 Payment limit error detected, retrying with custom client (no limit)...`);
-          try {
-            let fallbackResult: any;
-            if (method === 'GET') {
-              fallbackResult = await this.x402Client.callWithPaymentInfo(
-                tool.service.resource,
-                tool.paymentInfo,
-                { method, queryParams }
-              );
-            } else {
-              fallbackResult = await this.x402Client.callWithPaymentInfo(
-                tool.service.resource,
-                tool.paymentInfo,
-                { method, body: requestBody }
-              );
-            }
-            console.log(`      ✅ Data received via custom x402 client (fallback)`);
-            return fallbackResult;
-          } catch (fallbackError) {
-            // Fallback also failed, mark as bad
-            const serviceUrl = tool.service.resource;
-            this.serviceQuality.set(serviceUrl, {
-              isBad: true,
-              reason: 'Payment failed with both official and custom clients'
-            });
-            this.discoveredTools.delete(toolName);
-            throw fallbackError;
-          }
-        } else {
-          // No custom client available or price is low - mark as bad
-          const serviceUrl = tool.service.resource;
-          this.serviceQuality.set(serviceUrl, {
-            isBad: true,
-            reason: 'Payment amount exceeds x402-fetch maximum limit'
-          });
-          this.discoveredTools.delete(toolName);
-          console.log(`   🚫 Service marked as bad and removed: ${serviceUrl}`);
-          throw error;
-        }
+      // Check for payment amount limit errors (x402-fetch may have a maximum payment limit)
+      if (errorMessage.includes('Payment amount exceeds maximum allowed') || 
+          errorMessage.includes('exceeds maximum allowed')) {
+        // Mark service as bad - it exceeds x402-fetch's payment limit
+        const serviceUrl = tool.service.resource;
+        this.serviceQuality.set(serviceUrl, {
+          isBad: true,
+          reason: `Payment amount ($${price.toFixed(6)} USDC) exceeds x402-fetch maximum limit`
+        });
+        this.discoveredTools.delete(toolName);
+        console.log(`   🚫 Service marked as bad and removed: ${serviceUrl}`);
+        console.log(`      Reason: Payment amount exceeds x402-fetch limit`);
+        throw new Error(
+          `The service "${tool.name}" costs $${price.toFixed(6)} USDC, which exceeds the maximum payment limit. ` +
+          `Please try a different service with a lower price.`
+        );
       }
       
       // Check for specific HTTP error codes
