@@ -33,7 +33,7 @@ export default function ResearchForm() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authenticated, wallets?.length, walletCreationAttempted]);
 
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 
   async function handleResearch() {
     if (!authenticated) {

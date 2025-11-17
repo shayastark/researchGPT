@@ -384,7 +384,9 @@ class XMTPBazaarAgent {
       console.log(`   - POST /api/process-research (AI processing)`);
       console.log(`   - GET /api/api-health (health check)`);
     } catch (error) {
-      console.warn('⚠️  Could not load API server routes:', error instanceof Error ? error.message : error);
+      console.error('❌ Could not load API server routes:', error instanceof Error ? error.message : error);
+      console.error('❌ Stack trace:', error instanceof Error ? error.stack : 'N/A');
+      console.error('❌ This means frontend API endpoints will not work!');
     }
 
     // Start HTTP server first
