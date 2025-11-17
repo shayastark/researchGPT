@@ -1026,27 +1026,47 @@ Remember: You are operating in November 2025. Any "recent" data should be from 2
         }
         
         if (targetField && dataValue !== undefined) {
-          let value = String(dataValue).trim();
+          const fieldSchema = bodyFields[targetField];
+          const fieldType = fieldSchema?.type || (fieldSchema as any)?.schema?.type;
           
-          // Special handling for username fields
-          if (targetField.toLowerCase().includes('username') || targetField.toLowerCase().includes('user')) {
-            if (value.startsWith('@')) {
-              value = value.substring(1);
+          // Check if the field expects a number/float
+          if (fieldType === 'number' || fieldType === 'float' || fieldType === 'integer') {
+            // Try to parse as number, but if it's clearly text, this service won't work
+            const numValue = parseFloat(String(dataValue));
+            if (isNaN(numValue)) {
+              // Can't convert text to number - this service expects numeric input
+              throw new Error(
+                `The service "${tool.name}" expects a numeric value for "${targetField}" (type: ${fieldType}), ` +
+                `but received a text query. This service requires numeric input (e.g., a bias score between -1 and 1), ` +
+                `not text queries. Please try a different service that accepts text queries.`
+              );
             }
-            requestBody[targetField] = value;
-            console.log(`   🔧 Using schema: mapping 'data' to '${targetField}' (removed @ symbol)`);
-          } else if (targetField.toLowerCase().includes('url')) {
-            // For URL fields, check if it's a username and convert to Twitter URL
-            if (!value.startsWith('http')) {
-              // Assume it's a Twitter username, convert to URL
-              const username = value.startsWith('@') ? value.substring(1) : value;
-              value = `https://twitter.com/${username}`;
-            }
-            requestBody[targetField] = value;
-            console.log(`   🔧 Using schema: mapping 'data' to '${targetField}' (converted to URL)`);
+            requestBody[targetField] = numValue;
+            console.log(`   🔧 Using schema: mapping 'data' to '${targetField}' (converted to number: ${numValue})`);
           } else {
-            requestBody[targetField] = value;
-            console.log(`   🔧 Using schema: mapping 'data' to '${targetField}'`);
+            // String/text field - use as-is
+            let value = String(dataValue).trim();
+            
+            // Special handling for username fields
+            if (targetField.toLowerCase().includes('username') || targetField.toLowerCase().includes('user')) {
+              if (value.startsWith('@')) {
+                value = value.substring(1);
+              }
+              requestBody[targetField] = value;
+              console.log(`   🔧 Using schema: mapping 'data' to '${targetField}' (removed @ symbol)`);
+            } else if (targetField.toLowerCase().includes('url')) {
+              // For URL fields, check if it's a username and convert to Twitter URL
+              if (!value.startsWith('http')) {
+                // Assume it's a Twitter username, convert to URL
+                const username = value.startsWith('@') ? value.substring(1) : value;
+                value = `https://twitter.com/${username}`;
+              }
+              requestBody[targetField] = value;
+              console.log(`   🔧 Using schema: mapping 'data' to '${targetField}' (converted to URL)`);
+            } else {
+              requestBody[targetField] = value;
+              console.log(`   🔧 Using schema: mapping 'data' to '${targetField}'`);
+            }
           }
           
           // Add any other required fields with defaults if available
@@ -1142,6 +1162,24 @@ Remember: You are operating in November 2025. Any "recent" data should be from 2
         throw new Error(
           `The service "${tool.name}" costs $${price.toFixed(6)} USDC, which exceeds the maximum payment limit. ` +
           `Please try a different service with a lower price.`
+        );
+      }
+      
+      // Check for type conversion errors (e.g., string to float)
+      if (errorMessage.includes('could not convert string to float') || 
+          errorMessage.includes('Invalid input') && errorMessage.includes('convert')) {
+        // This service expects numeric input but received text
+        const serviceUrl = tool.service.resource;
+        this.serviceQuality.set(serviceUrl, {
+          isBad: false, // Not bad, just wrong parameter type
+          reason: 'Service expects numeric parameter but received text query'
+        });
+        console.log(`   ⚠️  Service parameter type mismatch: ${serviceUrl}`);
+        console.log(`      This service expects a numeric value (e.g., bias score) but received a text query.`);
+        throw new Error(
+          `The service "${tool.name}" expects a numeric parameter (like a bias score between -1 and 1), ` +
+          `but I tried to use it with a text query. This service is designed for numeric input, not text queries. ` +
+          `I'll try a different service that accepts text queries instead.`
         );
       }
       
