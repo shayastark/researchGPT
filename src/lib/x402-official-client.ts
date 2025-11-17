@@ -253,6 +253,48 @@ export class X402OfficialClient {
         }
       }
 
+      // Check if the extracted data is minimal/placeholder (like just a Twitter link)
+      if (typeof extractedData === 'object' && extractedData !== null && !Array.isArray(extractedData)) {
+        const dataObj = extractedData as Record<string, any>;
+        const keys = Object.keys(dataObj);
+        
+        // If data only contains a single field like "twitter" with a URL, it's likely placeholder
+        if (keys.length === 1 && (keys[0].toLowerCase() === 'twitter' || keys[0].toLowerCase() === 'url')) {
+          const value = dataObj[keys[0]];
+          if (typeof value === 'string' && (value.startsWith('http') || value.startsWith('https://x.com'))) {
+            console.log(`   ⚠️  WARNING: API returned minimal/placeholder data (just a ${keys[0]} link)`);
+            console.log(`   ⚠️  This service may not be returning actual data. Value: ${value}`);
+            
+            // Wrap in a structure that indicates this is placeholder data
+            return {
+              _placeholder_data: true,
+              _warning: `Service returned only a ${keys[0]} link, not actual data`,
+              _value: value,
+              _note: 'This x402 service may not be fully implemented or may require additional parameters'
+            };
+          }
+        }
+        
+        // Check if data is essentially empty (all values are null, empty strings, or just URLs)
+        const hasRealData = Object.values(dataObj).some(val => {
+          if (val === null || val === undefined) return false;
+          if (typeof val === 'string' && (val.trim() === '' || val.startsWith('http'))) return false;
+          if (typeof val === 'object' && Object.keys(val).length === 0) return false;
+          return true;
+        });
+        
+        if (!hasRealData && keys.length > 0) {
+          console.log(`   ⚠️  WARNING: API response appears to contain only placeholder/empty data`);
+          console.log(`   ⚠️  Keys: ${keys.join(', ')}`);
+          return {
+            _placeholder_data: true,
+            _warning: 'Service returned placeholder data, not actual content',
+            _data: extractedData,
+            _note: 'This x402 service may not be returning real data. Payment was made but no useful information was provided.'
+          };
+        }
+      }
+      
       console.log(`   ✅ Data received successfully`);
       return extractedData;
 

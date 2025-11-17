@@ -574,6 +574,12 @@ IMPORTANT GUIDELINES:
 4. Use appropriate, recent date ranges that match the user's intent
 5. Each tool call costs money, so only use them when necessary
 
+CRITICAL: When you use any tool (all tools are x402-paid services):
+- ALWAYS acknowledge in your response that you retrieved data using x402 protocol
+- If the tool returns minimal or placeholder data (like just a Twitter link), explain this to the user
+- If asked whether you used x402, you MUST answer truthfully - if you called any tool, you used x402
+- Be transparent about what data you received and how you're using it
+
 Remember: You are operating in November 2025. Any "recent" data should be from 2025.`,
       },
       {
@@ -627,10 +633,19 @@ Remember: You are operating in November 2025. Any "recent" data should be from 2
 
             console.log(`      ✅ Success`);
             
+            // Add metadata to indicate this came from x402
+            const resultWithMetadata = {
+              _x402_source: true,
+              _service_name: toolCall.function.name,
+              _data: result,
+            };
+            
             messages.push({
               role: 'tool',
               tool_call_id: toolCall.id,
-              content: typeof result === 'string' ? result : JSON.stringify(result),
+              content: typeof result === 'string' 
+                ? `[x402 data from ${toolCall.function.name}] ${result}`
+                : JSON.stringify(resultWithMetadata),
             });
           } catch (error) {
             console.error(`      ❌ Failed: ${error instanceof Error ? error.message : error}`);
