@@ -214,6 +214,7 @@ export class X402BazaarClient {
   private inferServiceFunction(service: X402Service): string {
     const url = service.resource.toLowerCase();
     const path = new URL(service.resource).pathname.toLowerCase();
+    const pathSegments = path.split('/').filter(s => s && s !== 'api' && s !== 'x402');
     
     // Check metadata first
     if (service.metadata) {
@@ -223,16 +224,30 @@ export class X402BazaarClient {
       if (metadata.title) return metadata.title;
     }
     
+    // Extract specific keywords from path for more nuanced descriptions
+    const hasCurrent = /current|latest|now|real.?time/i.test(path);
+    const hasBias = /bias|optimized|optimize/i.test(path);
+    const hasSentiment = /sentiment|feeling|mood/i.test(path);
+    const hasArbitrage = /arbitrage|arb/i.test(path);
+    
     // Infer from URL patterns
     // Order matters - more specific patterns should come first
     const patterns: Array<[RegExp, string]> = [
       // Crypto/blockchain specific (check first to avoid false matches)
       [/news.*base|base.*news|feed.*base|base.*feed/i, 'Get crypto/blockchain news and updates (Base ecosystem)'],
       [/news.*(?:crypto|blockchain|defi|token|nft)/i, 'Get crypto/blockchain news and updates'],
+      
+      // Trading signals - specific types first
+      [/signal.*current|current.*signal/i, hasCurrent ? 'Get current/latest trading signals (crypto/blockchain)' : 'Get current trading signals (crypto/blockchain)'],
+      [/signal.*bias|bias.*signal|bias.*optimized/i, hasBias ? 'Get bias-optimized trading signals (crypto/blockchain)' : 'Get optimized trading signals (crypto/blockchain)'],
+      [/signal.*sentiment|sentiment.*signal/i, hasSentiment ? 'Get sentiment-based trading signals (crypto/blockchain)' : 'Get sentiment trading signals (crypto/blockchain)'],
+      [/arbitrage|arb.*opportun/i, hasArbitrage ? 'Find arbitrage opportunities (crypto/blockchain)' : 'Find arbitrage opportunities (crypto/blockchain)'],
+      
+      // Generic trading signals (check after specific ones)
       [/signal|sentiment|analysis|trading/i, 'Get trading signals, market sentiment, or financial analysis (crypto/blockchain)'],
+      
       [/wallet|reputation|address/i, 'Get wallet information or reputation (crypto/blockchain)'],
       [/mint|nft|token/i, 'Mint tokens or NFTs (crypto/blockchain)'],
-      [/arbitrage|arb.*opportun/i, 'Find arbitrage opportunities (crypto/blockchain)'],
       [/kalshi|prediction|market/i, 'Get prediction market data or categories (crypto/blockchain)'],
       
       // General services
@@ -257,12 +272,22 @@ export class X402BazaarClient {
     
     for (const [pattern, description] of patterns) {
       if (pattern.test(url) || pattern.test(path)) {
+        // For signal services, enhance description with path context
+        if (description.includes('trading signals') && pathSegments.length > 0) {
+          const lastSegment = pathSegments[pathSegments.length - 1];
+          if (lastSegment.includes('current') || lastSegment.includes('latest')) {
+            return 'Get current/latest trading signals (crypto/blockchain)';
+          } else if (lastSegment.includes('bias') || lastSegment.includes('optimized')) {
+            return 'Get bias-optimized trading signals (crypto/blockchain)';
+          } else if (lastSegment.includes('sentiment')) {
+            return 'Get sentiment-based trading signals (crypto/blockchain)';
+          }
+        }
         return description;
       }
     }
     
     // Try to infer from path segments
-    const pathSegments = path.split('/').filter(s => s && s !== 'api' && s !== 'x402');
     if (pathSegments.length > 0) {
       const lastSegment = pathSegments[pathSegments.length - 1];
       // Convert snake_case or kebab-case to readable

@@ -35,6 +35,12 @@ const RAILWAY_VOLUME = process.env.RAILWAY_VOLUME_MOUNT_PATH;
 // HTTP server port (for Railway health checks)
 const PORT = parseInt(process.env.PORT || '3000');
 
+// Blacklist of known bad services (URLs that return placeholder data or don't work)
+const SERVICE_BLACKLIST: string[] = [
+  'https://x402.aiape.tech/signals', // Returns only Twitter link, not actual signals
+  // Add more known bad services here as they're discovered
+];
+
 interface DiscoveredTool {
   name: string;
   service: X402Service;
@@ -51,6 +57,8 @@ class XMTPBazaarAgent {
   private x402OfficialClient: X402OfficialClient | null = null;
   private bazaarClient: X402BazaarClient;
   private discoveredTools: Map<string, DiscoveredTool> = new Map();
+  // Track service quality (in-memory, resets on restart)
+  private serviceQuality: Map<string, { isBad: boolean; reason?: string }> = new Map();
 
   constructor() {
     // Validate required environment variables
@@ -252,6 +260,19 @@ class XMTPBazaarAgent {
 
       // Convert services to tools
       for (const service of services) {
+        // Check blacklist
+        if (SERVICE_BLACKLIST.includes(service.resource)) {
+          console.log(`   🚫 Blacklisted: ${service.resource} (known to return placeholder data)`);
+          continue;
+        }
+
+        // Check service quality tracker
+        const quality = this.serviceQuality.get(service.resource);
+        if (quality?.isBad) {
+          console.log(`   🚫 Skipping bad service: ${service.resource} (${quality.reason || 'returns placeholder data'})`);
+          continue;
+        }
+
         const paymentInfo = this.bazaarClient.getBestPaymentOption(
           service,
           USE_MAINNET 
@@ -658,13 +679,18 @@ IMPORTANT GUIDELINES:
    - For general research: Use general research services, not crypto-specific ones
    - For crypto/trading queries: Use crypto/blockchain services
    - If no appropriate service exists, inform the user rather than using an irrelevant service
-4. When filling date parameters (from_date, to_date, etc.):
+4. **Choosing Between Similar Services**: When multiple similar services exist (e.g., multiple trading signal services):
+   - Prefer more specific services over generic ones (e.g., "current/latest signals" for real-time data, "bias-optimized signals" for trading strategies)
+   - Match the service type to the query intent (e.g., "current" for "what's happening now", "bias-optimized" for "best trading opportunities")
+   - If services are equivalent, prefer the cheaper one to save costs
+   - Read the full tool description including cost and endpoint to make informed choices
+5. When filling date parameters (from_date, to_date, etc.):
    - For "latest" or "recent" news/data: Use ${sevenDaysAgo} to ${today} (last 7 days)
    - For "current" information: Use ${thirtyDaysAgo} to ${today} (last 30 days)
    - NEVER use dates from 2023 or earlier unless explicitly requested
    - Always use YYYY-MM-DD format
-5. Use appropriate, recent date ranges that match the user's intent
-6. Each tool call costs money, so only use them when necessary
+6. Use appropriate, recent date ranges that match the user's intent
+7. Each tool call costs money, so only use them when necessary
 
 CRITICAL: When you use any tool (all tools are x402-paid services):
 - ALWAYS acknowledge in your response that you retrieved data using x402 protocol
@@ -723,6 +749,23 @@ Remember: You are operating in November 2025. Any "recent" data should be from 2
               toolCall.function.name,
               args
             );
+
+            // Check if result is placeholder data (from x402-official-client detection)
+            const tool = this.discoveredTools.get(toolCall.function.name);
+            if (tool && typeof result === 'object' && result !== null && !Array.isArray(result)) {
+              const resultObj = result as Record<string, any>;
+              if (resultObj._placeholder_data === true) {
+                // Mark service as bad and remove from discoveredTools
+                const serviceUrl = tool.service.resource;
+                this.serviceQuality.set(serviceUrl, {
+                  isBad: true,
+                  reason: resultObj._warning || 'Returns placeholder data, not actual content'
+                });
+                this.discoveredTools.delete(toolCall.function.name);
+                console.log(`   🚫 Service marked as bad and removed: ${serviceUrl}`);
+                console.log(`      Reason: ${resultObj._warning || 'Returns placeholder data'}`);
+              }
+            }
 
             console.log(`      ✅ Success`);
             
