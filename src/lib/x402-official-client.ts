@@ -4,7 +4,7 @@
  */
 
 import { wrapFetchWithPayment, decodeXPaymentResponse } from 'x402-fetch';
-import { createWalletClient, createPublicClient, http, formatUnits, type Address } from 'viem';
+import { createWalletClient, createPublicClient, http, formatUnits, parseUnits, type Address } from 'viem';
 import { base, baseSepolia } from 'viem/chains';
 import { privateKeyToAccount } from 'viem/accounts';
 import type { Account } from 'viem';
@@ -13,6 +13,7 @@ export interface X402OfficialClientConfig {
   privateKey: `0x${string}`;
   rpcUrl: string;
   useMainnet: boolean;
+  maxPaymentAmountUSDC?: number; // Optional max payment in USDC (defaults to 1.0 USDC if not provided)
 }
 
 export class X402OfficialClient {
@@ -40,8 +41,16 @@ export class X402OfficialClient {
       transport: http(config.rpcUrl),
     });
 
+    // Calculate max payment amount in atomic units (USDC has 6 decimals)
+    // Default to 1.0 USDC if not specified (allows for most services)
+    const maxPaymentUSDC = config.maxPaymentAmountUSDC ?? 1.0;
+    const maxPaymentAmount = parseUnits(maxPaymentUSDC.toString(), 6); // Convert to bigint with 6 decimals
+
+    console.log(`   ⚙️  x402-fetch max payment limit: ${maxPaymentUSDC} USDC (${maxPaymentAmount.toString()} atomic units)`);
+
     // Wrap fetch with automatic x402 payment handling
-    this.fetchWithPayment = wrapFetchWithPayment(fetch, this.account);
+    // Pass maxValue as third parameter to allow higher payments
+    this.fetchWithPayment = wrapFetchWithPayment(fetch, this.account, maxPaymentAmount);
   }
 
   /**
