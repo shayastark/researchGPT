@@ -808,8 +808,10 @@ IMPORTANT GUIDELINES:
      * If a "bias-optimized" service fails because it expects numeric input, try a "current" or "latest" service instead
      * If a service fails due to parameter mismatch, look for services with different parameter names
      * If a service is unavailable, try another similar service
+     * **For image generation**: If a model ID is invalid, try again with a different model (e.g., "dall-e-3", "stable-diffusion", "midjourney", or omit the model parameter to use default)
    - **Always attempt at least 2-3 different services** before concluding no service is available
    - Only tell the user "no service available" after trying multiple alternatives
+   - **For model parameters**: If a service has a "model" parameter, check the tool description for valid options. If unsure, try common model names or omit the parameter to use the service's default model
 6. When filling date parameters (from_date, to_date, etc.):
    - For "latest" or "recent" news/data: Use ${sevenDaysAgo} to ${today} (last 7 days)
    - For "current" information: Use ${thirtyDaysAgo} to ${today} (last 30 days)
@@ -1172,6 +1174,24 @@ Remember: You are operating in November 2025. Any "recent" data should be from 2
         throw new Error(
           `The service "${tool.name}" costs $${price.toFixed(6)} USDC, which exceeds the maximum payment limit. ` +
           `Please try a different service with a lower price.`
+        );
+      }
+      
+      // Check for invalid model ID errors
+      if (errorMessage.includes('Unknown model ID') || 
+          errorMessage.includes('INVALID_MODEL') ||
+          (errorMessage.includes('Invalid') && errorMessage.includes('model'))) {
+        // Extract the invalid model name if possible
+        const modelMatch = errorMessage.match(/model[:\s]+["']?([^"'\s,}]+)["']?/i);
+        const invalidModel = modelMatch ? modelMatch[1] : 'unknown';
+        
+        console.log(`   ⚠️  Invalid model ID: ${invalidModel}`);
+        console.log(`      The service "${tool.name}" does not support the model "${invalidModel}".`);
+        console.log(`      Try using a different model or check the service documentation for valid models.`);
+        
+        throw new Error(
+          `The service "${tool.name}" does not support the model "${invalidModel}". ` +
+          `Please try again with a different model. Common image generation models include: "dall-e-3", "stable-diffusion", "midjourney", or check the service documentation for valid options.`
         );
       }
       
