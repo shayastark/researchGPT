@@ -4,7 +4,13 @@
   "description": "XMTP research agent with x402 payment protocol on Base blockchain",
   "type": "module",
   "main": "dist/src/agent/index-bazaar.js",
+  "workspaces": [
+    "frontend"
+  ],
   "scripts": {
+    "dev:frontend": "npm run dev --workspace=frontend",
+    "build:frontend": "npm run build --workspace=frontend",
+    "dev:all": "concurrently \"npm run dev\" \"npm run dev:frontend\"",
     "build": "tsc",
     "start": "node dist/src/agent/index-bazaar.js",
     "dev": "node --loader ts-node/esm --no-warnings=ExperimentalWarning src/agent/index-bazaar.ts",

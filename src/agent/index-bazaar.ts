@@ -6,6 +6,9 @@ import dotenv from 'dotenv';
 import { X402Client } from '../lib/x402-client.js';
 import { X402OfficialClient } from '../lib/x402-official-client.js';
 import { X402BazaarClient, type X402Service, type X402ServiceAccept } from '../lib/x402-bazaar-discovery.js';
+// API server will be loaded lazily in start() method
+// let apiServer: any = null;
+// let setAgentInstance: any = null;
 
 dotenv.config();
 
@@ -42,7 +45,7 @@ class XMTPBazaarAgent {
   private agent!: Agent;
   private httpServer: express.Application;
   private serverStartTime: Date;
-  private openai: OpenAI;
+  private openai: any;
   private x402Client: X402Client | null = null;
   private x402OfficialClient: X402OfficialClient | null = null;
   private bazaarClient: X402BazaarClient;
@@ -58,6 +61,7 @@ class XMTPBazaarAgent {
     }
 
     this.serverStartTime = new Date();
+    // @ts-ignore - OpenAI import type issue with ts-node/esm
     this.openai = new OpenAI({ apiKey: OPENAI_API_KEY });
     this.bazaarClient = new X402BazaarClient();
 
@@ -354,11 +358,29 @@ class XMTPBazaarAgent {
   }
 
   async start() {
+    // Mount API server routes (for frontend) - lazy load to avoid import issues
+    try {
+      const apiModule = await import('../api/server.js');
+      const apiServer = apiModule.default;
+      const setAgentInstance = apiModule.setAgentInstance;
+      this.httpServer.use('/api', apiServer);
+      setAgentInstance(this);
+      console.log('✅ API server routes mounted');
+      console.log(`   Endpoints available:`);
+      console.log(`   - POST /api/x402-research (proxy x402 calls)`);
+      console.log(`   - POST /api/process-research (AI processing)`);
+      console.log(`   - GET /api/api-health (health check)`);
+    } catch (error) {
+      console.warn('⚠️  Could not load API server routes:', error instanceof Error ? error.message : error);
+    }
+
     // Start HTTP server first
     this.httpServer.listen(PORT, () => {
       console.log(`\n🌐 HTTP server listening on port ${PORT}`);
       console.log(`   Health check: http://localhost:${PORT}/health`);
       console.log(`   Status: http://localhost:${PORT}/status`);
+      console.log(`   API endpoint: http://localhost:${PORT}/api/process-research`);
+      console.log(`   Frontend can connect to: http://localhost:${PORT}`);
     });
 
     await this.initialize();
@@ -469,7 +491,7 @@ class XMTPBazaarAgent {
     console.log(`   Available services: ${this.discoveredTools.size}`);
 
     // Build tools for OpenAI from discovered services
-    const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = Array.from(this.discoveredTools.values()).map(tool => {
+    const tools: any[] = Array.from(this.discoveredTools.values()).map(tool => {
       const inputSchema = tool.paymentInfo.outputSchema?.input;
       const queryParams = inputSchema?.queryParams || {};
       const method = inputSchema?.method || 'GET';
@@ -534,7 +556,7 @@ class XMTPBazaarAgent {
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
-    let messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+    let messages: any[] = [
       {
         role: 'system',
         content: `You are a helpful research assistant with access to paid data services via the x402 protocol.
@@ -765,18 +787,53 @@ Remember: You are operating in November 2025. Any "recent" data should be from 2
       }
     }
     
-    const result = await this.x402OfficialClient.callEndpoint(
-      tool.service.resource,
-      {
-        method,
-        ...(method === 'POST' ? { body: requestBody } : {}),
-        ...(method === 'GET' && Object.keys(queryParams).length > 0 ? { queryParams } : {}),
-      }
-    );
+    try {
+      const result = await this.x402OfficialClient.callEndpoint(
+        tool.service.resource,
+        {
+          method,
+          ...(method === 'POST' ? { body: requestBody } : {}),
+          ...(method === 'GET' && Object.keys(queryParams).length > 0 ? { queryParams } : {}),
+        }
+      );
 
-    console.log(`      ✅ Data received via official x402 protocol`);
-    
-    return result;
+      console.log(`      ✅ Data received via official x402 protocol`);
+      
+      return result;
+    } catch (error: any) {
+      // Improve error messages for users
+      const errorMessage = error?.message || String(error);
+      
+      // Check for specific HTTP error codes
+      if (errorMessage.includes('502') || errorMessage.includes('Bad Gateway')) {
+        throw new Error(
+          `The x402 service "${tool.name}" is currently unavailable (502 Bad Gateway). ` +
+          `This usually means the service is temporarily down. Please try again in a few minutes, ` +
+          `or ask me to try a different service.`
+        );
+      } else if (errorMessage.includes('503') || errorMessage.includes('Service Unavailable')) {
+        throw new Error(
+          `The x402 service "${tool.name}" is temporarily unavailable. Please try again later.`
+        );
+      } else if (errorMessage.includes('404') || errorMessage.includes('Not Found')) {
+        throw new Error(
+          `The x402 service "${tool.name}" endpoint was not found. This service may have been removed or changed.`
+        );
+      } else if (errorMessage.includes('402') || errorMessage.includes('Payment Required')) {
+        throw new Error(
+          `Payment failed for "${tool.name}". This could be due to insufficient USDC balance ` +
+          `or a payment processing issue. Please check your wallet balance.`
+        );
+      } else if (errorMessage.includes('timeout') || errorMessage.includes('ETIMEDOUT')) {
+        throw new Error(
+          `The request to "${tool.name}" timed out. The service may be slow or overloaded. ` +
+          `Please try again.`
+        );
+      }
+      
+      // Re-throw with original message if no specific handling
+      throw error;
+    }
   }
 
   /**
@@ -808,10 +865,23 @@ Remember: You are operating in November 2025. Any "recent" data should be from 2
 }
 
 // Start the agent
-const agent = new XMTPBazaarAgent();
-agent.start().catch((error) => {
-  console.error('❌ Fatal error:', error);
+try {
+  const agent = new XMTPBazaarAgent();
+  agent.start().catch((error) => {
+    console.error('❌ Fatal error starting agent:', error);
+    console.error('Error stack:', error?.stack);
+    process.exit(1);
+  });
+} catch (error: any) {
+  console.error('❌ Fatal error creating agent:', error);
+  console.error('Error type:', typeof error);
+  console.error('Error constructor:', error?.constructor?.name);
+  console.error('Error message:', error?.message);
+  console.error('Error stack:', error?.stack);
+  if (error && typeof error === 'object') {
+    console.error('Error keys:', Object.keys(error));
+  }
   process.exit(1);
-});
+}
 
 export default XMTPBazaarAgent;
