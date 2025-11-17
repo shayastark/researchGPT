@@ -539,10 +539,17 @@ class XMTPBazaarAgent {
             }
           }
           
-          properties[paramName] = {
+          const propertyDef: any = {
             type: schema.type || 'string',
             description,
           };
+          
+          // Handle array types - OpenAI requires 'items' definition
+          if (schema.type === 'array') {
+            propertyDef.items = schema.items || { type: 'string' };
+          }
+          
+          properties[paramName] = propertyDef;
           if (schema.required) {
             required.push(paramName);
           }
@@ -588,10 +595,17 @@ class XMTPBazaarAgent {
               }
             }
             
-            properties[fieldName] = {
+            const propertyDef: any = {
               type: schema.type || 'string',
               description,
             };
+            
+            // Handle array types - OpenAI requires 'items' definition
+            if (schema.type === 'array') {
+              propertyDef.items = schema.items || { type: 'string' };
+            }
+            
+            properties[fieldName] = propertyDef;
             
             if (schema.required) {
               required.push(fieldName);
