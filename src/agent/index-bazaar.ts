@@ -2,6 +2,7 @@ import { Agent, filter, validHex } from '@xmtp/agent-sdk';
 import { createUser, createSigner } from '@xmtp/agent-sdk/user';
 import OpenAI from 'openai';
 import express from 'express';
+import cors from 'cors';
 import dotenv from 'dotenv';
 import { X402Client } from '../lib/x402-client.js';
 import { X402OfficialClient } from '../lib/x402-official-client.js';
@@ -96,6 +97,18 @@ class XMTPBazaarAgent {
 
     // Initialize HTTP server for health checks
     this.httpServer = express();
+    
+    // Enable CORS for frontend (allow localhost for development)
+    this.httpServer.use(cors({
+      origin: process.env.FRONTEND_URL || [
+        'http://localhost:3000',
+        'http://localhost:3001',
+        'http://127.0.0.1:3000',
+        'http://127.0.0.1:3001',
+      ],
+      credentials: true,
+    }));
+    
     this.httpServer.use(express.json());
     this.setupHttpEndpoints();
 
