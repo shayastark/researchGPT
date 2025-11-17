@@ -297,7 +297,13 @@ class XMTPBazaarAgent {
         });
 
         const price = this.bazaarClient.formatPrice(paymentInfo.maxAmountRequired, 6);
-        console.log(`   ✅ ${toolName}: $${price} USDC - ${service.resource}`);
+        const priceNum = parseFloat(price);
+        // Warn about services that might exceed x402-fetch payment limit (likely ~$0.20)
+        if (priceNum > 0.20) {
+          console.log(`   ⚠️  ${toolName}: $${price} USDC - ${service.resource} (may exceed x402-fetch payment limit)`);
+        } else {
+          console.log(`   ✅ ${toolName}: $${price} USDC - ${service.resource}`);
+        }
       }
 
       console.log(`\n✅ Discovered ${this.discoveredTools.size} available services`);
@@ -804,12 +810,18 @@ Remember: You are operating in November 2025. Any "recent" data should be from 2
                 : JSON.stringify(resultWithMetadata),
             });
           } catch (error) {
-            console.error(`      ❌ Failed: ${error instanceof Error ? error.message : error}`);
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            console.error(`      ❌ Failed: ${errorMessage}`);
+            
+            // Check if this is a payment limit error - service should already be marked bad
+            if (errorMessage.includes('exceeds maximum allowed') || errorMessage.includes('Payment amount exceeds')) {
+              console.log(`   ⚠️  Service was removed due to payment limit. Agent will try alternative services.`);
+            }
             
             messages.push({
               role: 'tool',
               tool_call_id: toolCall.id,
-              content: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+              content: `Error: ${errorMessage}`,
             });
           }
         }
@@ -836,7 +848,7 @@ Remember: You are operating in November 2025. Any "recent" data should be from 2
       throw new Error(`Unknown tool: ${toolName}`);
     }
 
-    if (!this.x402OfficialClient) {
+    if (!this.x402OfficialClient && !this.x402Client) {
       throw new Error('x402 payment client not configured');
     }
 
@@ -845,18 +857,18 @@ Remember: You are operating in November 2025. Any "recent" data should be from 2
 
     const inputSchema = tool.paymentInfo.outputSchema?.input;
     const method = (inputSchema?.method || 'GET').toUpperCase() as 'GET' | 'POST';
+    const price = parseFloat(this.bazaarClient.formatPrice(tool.paymentInfo.maxAmountRequired, 6));
+    
+    // Determine which client to use based on price
+    // x402-fetch has a limit around $0.20, so use custom client for higher prices
+    const useCustomClient = price > 0.20;
+    const clientName = useCustomClient ? 'custom X402Client' : 'official x402-fetch';
 
     console.log(`\n   💰 Executing discovered service via x402:`);
     console.log(`      Service: ${tool.service.resource}`);
     console.log(`      Method: ${method}`);
-    console.log(`      Expected price: ~${this.bazaarClient.formatPrice(tool.paymentInfo.maxAmountRequired, 6)} USDC`);
-    console.log(`      Using official x402-fetch (automatic 402 handling)`);
-
-    // Call using official x402-fetch - it handles the entire flow:
-    // 1. Makes request → gets 402 with payment requirements
-    // 2. Creates and submits payment
-    // 3. Waits for confirmation
-    // 4. Retries with X-PAYMENT header
+    console.log(`      Expected price: ~${price.toFixed(6)} USDC`);
+    console.log(`      Using ${clientName} (${useCustomClient ? 'no payment limit' : 'automatic 402 handling'})`);
     
     // Build query parameters from input
     let queryParams: Record<string, string> = {};
@@ -959,21 +971,97 @@ Remember: You are operating in November 2025. Any "recent" data should be from 2
     }
     
     try {
-      const result = await this.x402OfficialClient.callEndpoint(
-        tool.service.resource,
-        {
-          method,
-          ...(method === 'POST' ? { body: requestBody } : {}),
-          ...(method === 'GET' && Object.keys(queryParams).length > 0 ? { queryParams } : {}),
+      let result: any;
+      
+      if (useCustomClient && this.x402Client) {
+        // Use custom client for high-priced services (no payment limit)
+        if (method === 'GET') {
+          result = await this.x402Client.callWithPaymentInfo(
+            tool.service.resource,
+            tool.paymentInfo,
+            {
+              method,
+              queryParams,
+            }
+          );
+        } else {
+          result = await this.x402Client.callWithPaymentInfo(
+            tool.service.resource,
+            tool.paymentInfo,
+            {
+              method,
+              body: requestBody,
+            }
+          );
         }
-      );
-
-      console.log(`      ✅ Data received via official x402 protocol`);
+        console.log(`      ✅ Data received via custom x402 client (no payment limit)`);
+      } else if (this.x402OfficialClient) {
+        // Use official client for standard services (automatic payment handling)
+        result = await this.x402OfficialClient.callEndpoint(
+          tool.service.resource,
+          {
+            method,
+            ...(method === 'POST' ? { body: requestBody } : {}),
+            ...(method === 'GET' && Object.keys(queryParams).length > 0 ? { queryParams } : {}),
+          }
+        );
+        console.log(`      ✅ Data received via official x402 protocol`);
+      } else {
+        throw new Error('No x402 payment client available');
+      }
       
       return result;
     } catch (error: any) {
       // Improve error messages for users
       const errorMessage = error?.message || String(error);
+      
+      // Check for payment amount limit errors (x402-fetch has a maximum payment limit)
+      // This should only happen if we're using the official client for a service > $0.20
+      // (which shouldn't happen with our routing, but keep as safety net)
+      if ((errorMessage.includes('Payment amount exceeds maximum allowed') || 
+          errorMessage.includes('exceeds maximum allowed')) && !useCustomClient) {
+        // If we hit this error, it means routing failed - try custom client as fallback
+        if (this.x402Client && price > 0.20) {
+          console.log(`   🔄 Payment limit error detected, retrying with custom client (no limit)...`);
+          try {
+            let fallbackResult: any;
+            if (method === 'GET') {
+              fallbackResult = await this.x402Client.callWithPaymentInfo(
+                tool.service.resource,
+                tool.paymentInfo,
+                { method, queryParams }
+              );
+            } else {
+              fallbackResult = await this.x402Client.callWithPaymentInfo(
+                tool.service.resource,
+                tool.paymentInfo,
+                { method, body: requestBody }
+              );
+            }
+            console.log(`      ✅ Data received via custom x402 client (fallback)`);
+            return fallbackResult;
+          } catch (fallbackError) {
+            // Fallback also failed, mark as bad
+            const serviceUrl = tool.service.resource;
+            this.serviceQuality.set(serviceUrl, {
+              isBad: true,
+              reason: 'Payment failed with both official and custom clients'
+            });
+            this.discoveredTools.delete(toolName);
+            throw fallbackError;
+          }
+        } else {
+          // No custom client available or price is low - mark as bad
+          const serviceUrl = tool.service.resource;
+          this.serviceQuality.set(serviceUrl, {
+            isBad: true,
+            reason: 'Payment amount exceeds x402-fetch maximum limit'
+          });
+          this.discoveredTools.delete(toolName);
+          console.log(`   🚫 Service marked as bad and removed: ${serviceUrl}`);
+          throw error;
+        }
+      }
       
       // Check for specific HTTP error codes
       if (errorMessage.includes('502') || errorMessage.includes('Bad Gateway')) {
