@@ -1,5 +1,6 @@
 import { Agent, filter, validHex } from '@xmtp/agent-sdk';
 import { createUser, createSigner } from '@xmtp/agent-sdk/user';
+import { ReactionCodec } from '@xmtp/content-type-reaction';
 import OpenAI from 'openai';
 import express from 'express';
 import cors from 'cors';
@@ -374,6 +375,8 @@ class XMTPBazaarAgent {
       // Create agent with proper configuration
       this.agent = await Agent.create(signer, {
         env: XMTP_ENV,
+        // Register reaction codec for emoji reactions
+        codecs: [new ReactionCodec()],
         // Database path - use Railway volume if available, otherwise local
         dbPath: RAILWAY_VOLUME 
           ? (inboxId) => `${RAILWAY_VOLUME}/${XMTP_ENV}-${inboxId.slice(0, 8)}.db3`
@@ -452,6 +455,14 @@ class XMTPBazaarAgent {
       console.log(`📨 Received message from ${senderAddress}`);
       console.log(`   Query: "${messageContent}"`);
       console.log('='.repeat(80));
+
+      // Send 🧐 reaction immediately to show the agent is thinking
+      try {
+        await ctx.sendReaction('🧐');
+        console.log(`   🧐 Sent thinking reaction`);
+      } catch (error) {
+        console.warn('   ⚠️  Could not send reaction:', error instanceof Error ? error.message : error);
+      }
 
       try {
         // Process the request with discovered services
